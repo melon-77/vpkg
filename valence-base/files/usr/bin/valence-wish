@@ -97,12 +97,19 @@ fi
 if [ -n "$CHECK" ]; then say "$(basename "$FILE"): $(printf '%s\n' "$ITEMS" | grep -c .) wishes, readable"; exit 0; fi
 
 # ---------- what is there, and what the file adds ----------
-APK="apk${ROOT:+ --root $ROOT}"
-# the installers' copy of the ISO's packages, by its path from here (apk reads the target's repositories file as
+if [ -f "${ROOT:-}/var/lib/vpm/world" ] && command -v vpm >/dev/null 2>&1; then
+  PM_BIN=vpm
+  APK="vpm --plain${ROOT:+ --root $ROOT}"
+else
+  PM_BIN=apk
+  APK="apk${ROOT:+ --root $ROOT}"
+fi
+# the installers' copy of the ISO's packages, by its path from here (apk/vpm read the target's repositories file as
 # paths of this system)
-[ -n "$ROOT" ] && [ -f "$ROOT/var/lib/valence/repo/$(apk --print-arch)/Packages.adb" ] &&
-  APK="$APK --repository $ROOT/var/lib/valence/repo/$(apk --print-arch)/Packages.adb"
-# the package indexes: fetch the repositories' lists (one that cannot be reached is left out, with apk's warning)
+_ARCH=$($PM_BIN --print-arch)
+[ -n "$ROOT" ] && [ -f "$ROOT/var/lib/valence/repo/$_ARCH/Packages.adb" ] &&
+  APK="$APK --repository $ROOT/var/lib/valence/repo/$_ARCH/Packages.adb"
+# the package indexes: fetch the repositories' lists (one that cannot be reached is left out, with a warning)
 $APK update >/dev/null 2>&1 || true
 flathub_id(){   # a name in "packages" that is no apk package: the Flathub app it means
   case $1 in *.*.*) echo "$1"; return 0 ;; esac

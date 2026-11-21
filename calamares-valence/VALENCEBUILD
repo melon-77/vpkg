@@ -1,6 +1,6 @@
 pkgname=calamares-valence
 pkgver=0.1
-pkgrel=13
+pkgrel=14
 pkgdesc="Valence's Calamares setup: branding, job configs and finishing scripts (live ISO only)"
 license=GPL-3.0-or-later
 depends=(calamares)
