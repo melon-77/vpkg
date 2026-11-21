@@ -1,6 +1,6 @@
 pkgname=vpm
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Valence's own package manager, stage 1: the signed apk packages, a folder for every program (ROADMAP.md, phase 10)"
 license=GPL-2.0-only
 url=https://github.com/melon-77/v

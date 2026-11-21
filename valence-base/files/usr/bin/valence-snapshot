@@ -205,10 +205,10 @@ cmd_auto(){   # apk's pre-commit hook. Silent and successful where there is noth
   # what apk was asked to do, without its options and paths: "apk add less-doc"
   # (or what the caller says it is about to do: valence-wish takes one snapshot for a whole wish list)
   what=$(tr '\0' '\n' < /proc/$PPID/cmdline 2>/dev/null | sed '1s|^.*/||' | grep -v -e '^-' -e / | xargs 2>/dev/null)
-  case $what in apk*) ;; *) what="a package change" ;; esac
+  case $what in apk*|vpm*) ;; *) what="a package change" ;; esac
   [ -z "${VALENCE_SNAPSHOT_TEXT:-}" ] || what=$(printf '%s' "$VALENCE_SNAPSHOT_TEXT" | tr -c -d 'A-Za-z0-9 ._:/=+,@-' | cut -c1-60)
   id=$(create update "before $what") || die "no snapshot could be taken, so nothing was changed.
-  To go on without one: apk --no-commit-hooks ..."
+  To go on without one: apk --no-commit-hooks ... (or vpm --no-commit-hooks ...)"
   rm -f $SNAP/.origin
   prune; clean_boot
   menu --snapshots
