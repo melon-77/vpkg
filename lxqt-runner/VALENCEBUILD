@@ -1,0 +1,10 @@
+pkgname=lxqt-runner
+pkgver=2.4.0
+pkgrel=2
+pkgdesc="LXQt application launcher (Alt+F2)"
+license="LGPL-2.1-or-later (see sources)"
+url=https://lxqt-project.org
+source=(lxqt-runner-2.4.0.tar.xz)
+makedepends=(kf6-kwindowsystem-dev layer-shell-qt-dev liblxqt-dev libqtxdg-dev lxqt-build-tools lxqt-globalkeys-dev qt6-qtbase-dev)
+build(){ cmake_setup -B build -DQT_HOST_PATH=$M/hosttools/qt6 -DQT_HOST_PATH_CMAKE_DIR=$M/hosttools/qt6/lib/cmake -DUPDATE_TRANSLATIONS=OFF -DQt6LinguistTools_DIR=$M/hosttools/qt6/lib/cmake/Qt6LinguistTools -DRUNNER_MATH=OFF -DRUNNER_VBOX=OFF; ninja -C build -j$JOBS; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

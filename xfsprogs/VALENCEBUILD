@@ -1,0 +1,17 @@
+pkgname=xfsprogs
+pkgver=6.18.0
+pkgrel=2
+pkgdesc="XFS filesystem utilities (mkfs.xfs, xfs_repair, ...)"
+license="GPL-2.0-only AND LGPL-2.1-only"
+url=https://xfs.wiki.kernel.org
+source=(xfsprogs-6.18.0.tar.xz)
+makedepends=(util-linux-dev userspace-rcu-dev inih-dev linux-headers)
+# xfs_io links libdevmapper when it finds one (there is no configure switch). It did while every build shared one
+# sysroot; device-mapper-dev is not in makedepends, so it does not, and xfsprogs does not pull in device-mapper.
+build(){
+  export DEBUG=-DNDEBUG OPTIMIZER="$CFLAGS" LOCAL_CONFIGURE_OPTIONS=
+  ./configure $conf_flags --enable-gettext=no --disable-libicu --enable-scrub=no --enable-lto=no \
+     --with-systemd-unit-dir=no --with-udev-rule-dir=no --with-crond-dir=no
+  make -j$JOBS BUILD_CC=gcc
+}
+package(){ make DIST_ROOT=$pkgdir install; rm -rf $pkgdir/usr/lib/xfsprogs/xfs_scrub* ; }

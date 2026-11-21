@@ -1,0 +1,10 @@
+pkgname=docs
+pkgver=1
+pkgrel=0
+pkgdesc="Documentation for everything installed: every package's -doc part, now and for whatever is installed later"
+license=MIT
+# Nothing of its own. The builder gives every <pkg>-doc "install-if: docs <pkg>=<version>", so with this package
+# installed apk adds the -doc part of each installed package, and removes them all again with it.
+depends=(mandoc)
+builddir=$srcdir
+package(){ :; }

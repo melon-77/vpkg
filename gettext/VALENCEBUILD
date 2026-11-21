@@ -1,0 +1,30 @@
+pkgname=gettext
+pkgver=0.23.2
+pkgrel=2
+pkgdesc="GNU gettext: tools for translating programs (msgfmt, xgettext, envsubst, ...)"
+license="GPL-3.0-or-later AND LGPL-2.1-or-later"
+url=https://www.gnu.org/software/gettext/
+source=(gettext-0.23.2.tar.xz)
+builddir=$srcdir/gettext-0.23.2
+makedepends=(ncurses-dev libxml2-dev acl-dev attr-dev)
+subpackages=(gettext-dev)
+
+# glibc has gettext() and libintl.h itself, and configure sees that, so GNU libintl is not built and no second
+# libintl.h is installed over glibc's (package() makes sure).
+#   --without-git   autopoint's archive as .tar.xz, so autopoint doesn't need git on Valence
+#   *-prefix=       AC_LIB_LINKFLAGS searches the build machine's /usr unless it is pointed at the sysroot
+build(){
+  ./configure $conf_flags --disable-static --disable-rpath --enable-threads=posix --disable-openmp \
+    --disable-java --disable-csharp --without-emacs --without-git --without-cvs --without-included-libxml \
+    --with-libxml2-prefix=$SYSROOT/usr --with-libncurses-prefix=$SYSROOT/usr --without-libintl-prefix
+  make -j$JOBS
+}
+package(){
+  make DESTDIR=$pkgdir install
+  # GNU libintl must not be there: glibc provides it
+  if [ -e $pkgdir/usr/include/libintl.h ] || ls $pkgdir/usr/lib/libintl.* >/dev/null 2>&1; then
+    echo "gettext: GNU libintl was built, which would replace glibc's" >&2; return 1
+  fi
+}
+# the translators' helpers (gettextize, autopoint and its archive; default_dev takes the m4 macros) go with the headers
+pkg_dev(){ default_dev; amove usr/bin/gettextize usr/bin/autopoint 'usr/share/gettext/archive.*'; }

@@ -1,0 +1,29 @@
+pkgname=qemu
+pkgver=11.1.1
+pkgrel=2
+pkgdesc="QEMU: PC emulator and virtualizer with KVM (x86_64 and i386 guests; qemu-img)"
+license=GPL-2.0-only
+url=https://www.qemu.org
+source=(qemu-11.1.1.tar.xz setuptools-84.0.0-py3-none-any.whl wheel-0.45.1-py3-none-any.whl)
+makedepends=(glib-dev pixman-dev zlib-dev zstd-dev libslirp-dev ncurses-dev libpng-dev libjpeg-turbo-dev libseccomp-dev
+  pipewire-dev linux-headers
+  alsa-lib-dev bzip2-dev curl-dev dtc-dev elfutils-dev eudev-dev fuse3-dev keyutils-dev libgcrypt-dev libusb-dev libxkbcommon-dev linux-pam-dev pulseaudio-dev)
+# Headless and VNC displays plus curses (no SDL2 or GTK in Valence); sound through PipeWire, or to a .wav file (the
+# tests). Valence's own QEMU tests need KVM, user networking (libslirp), the VMware/virtio/USB devices and the ROMs
+# QEMU ships (SeaBIOS, option ROMs). UEFI firmware is the ovmf package.
+# configure makes a Python venv (python/scripts/mkvenv.py) and installs meson and its "tooling" group into it from
+# python/wheels, offline. On a Valence build machine python3 has neither pip nor ensurepip (AGENTS.md rule 53): the venv
+# comes from the host Python (scripts/host-python.sh, which keeps ensurepip), and setuptools and wheel, which "tooling"
+# wants and Ubuntu's python3 has, go next to QEMU's own wheels.
+prepare(){ [ "$VALENCE_HOST" != valence ] || cp $srcdir/*.whl python/wheels/; }
+build(){
+  local py=/usr/bin/python3; [ "$VALENCE_HOST" != valence ] || py=$M/hosttools/python/bin/python3.14
+  PKG_CONFIG=pkg-config ./configure --cross-prefix=$TARGET- --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
+    --libexecdir=/usr/libexec --python=$py --target-list=x86_64-softmmu,i386-softmmu \
+    --enable-kvm --enable-slirp --enable-vnc --enable-vnc-jpeg --enable-png --enable-curses --enable-seccomp \
+    --enable-pixman --enable-zstd --audio-drv-list=pipewire --enable-tools --disable-guest-agent \
+    --disable-gtk --disable-sdl --disable-opengl --disable-spice --disable-xen --disable-docs --disable-werror \
+    --disable-rust --disable-debug-info --disable-download
+  make -j$JOBS
+}
+package(){ make DESTDIR=$pkgdir install; }

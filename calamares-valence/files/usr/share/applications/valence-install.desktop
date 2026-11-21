@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Install Valence
+GenericName=System installer
+Comment=Install Valence to this computer
+Icon=valence-installer
+Exec=valence-install-gui
+Terminal=false
+Categories=System;
+Keywords=installer;calamares;install;

@@ -1,0 +1,10 @@
+pkgname=hicolor-icon-theme
+pkgver=0.18
+pkgrel=1
+pkgdesc="hicolor-icon-theme (graphics stack)"
+license=custom
+source=(hicolor-icon-theme-0.18.tar.xz)
+builddir=$srcdir/hicolor-icon-theme-0.18
+build(){ meson_setup  build; ninja -C build; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }
+options=('!strip')

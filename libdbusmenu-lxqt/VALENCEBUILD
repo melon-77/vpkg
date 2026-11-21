@@ -1,0 +1,12 @@
+pkgname=libdbusmenu-lxqt
+pkgver=0.4.0
+pkgrel=2
+pkgdesc="Exports Qt menus over the DBusMenu protocol (tray menus)"
+license="LGPL-2.1-or-later (see sources)"
+url=https://lxqt-project.org
+source=(libdbusmenu-lxqt-0.4.0.tar.xz)
+makedepends=(lxqt-build-tools qt6-qtbase-dev)
+subpackages=(libdbusmenu-lxqt-dev)
+pkg_dev(){ default_dev; amove usr/share/cmake; }
+build(){ cmake_setup -B build -DQT_HOST_PATH=$M/hosttools/qt6 -DQT_HOST_PATH_CMAKE_DIR=$M/hosttools/qt6/lib/cmake -DUPDATE_TRANSLATIONS=OFF -DQt6LinguistTools_DIR=$M/hosttools/qt6/lib/cmake/Qt6LinguistTools -DWITH_DOC=OFF; ninja -C build -j$JOBS; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

@@ -1,0 +1,40 @@
+---
+componentName:  valence
+
+welcomeStyleCalamares:   false
+welcomeExpandingLogo:   true
+windowExpanding:    normal
+windowSize: 1024px,700px
+windowPlacement: center
+sidebar: widget
+navigation: widget
+
+strings:
+    productName:         Valence Linux
+    shortProductName:    Valence
+    version:             rolling
+    shortVersion:        rolling
+    versionedName:       Valence Linux (rolling)
+    shortVersionedName:  Valence
+    bootloaderEntryName: valence
+    productUrl:          https://github.com/melon-77/v
+    supportUrl:          https://github.com/melon-77/v/issues
+    knownIssuesUrl:      https://github.com/melon-77/v/issues
+    releaseNotesUrl:     https://github.com/melon-77/v
+
+images:
+    productLogo:         "logo.png"
+    productIcon:         "icon.png"
+    productWelcome:      "welcome.png"
+
+slideshow:               "show.qml"
+slideshowAPI:            2
+
+style:
+   SidebarBackground:        "#101116"
+   SidebarText:              "#c3c9d6"
+   SidebarTextCurrent:       "#0b0c10"
+   SidebarBackgroundCurrent: "#c3c9d6"
+
+uploadServer :
+    type :    "none"

@@ -1,0 +1,10 @@
+pkgname=userspace-rcu
+pkgver=0.15.6
+pkgrel=1
+pkgdesc="Userspace RCU (read-copy-update) library"
+license="LGPL-2.1-or-later"
+url=https://liburcu.org
+source=(userspace-rcu-0.15.6.tar.bz2)
+subpackages=(userspace-rcu-dev)
+build(){ ./configure $conf_flags --disable-static; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

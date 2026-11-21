@@ -1,0 +1,59 @@
+pkgname=shadow
+pkgver=4.20.3
+pkgrel=2
+pkgdesc="Login and account tools: login, su, passwd, useradd, usermod and the rest"
+license=BSD-3-Clause
+url=https://github.com/shadow-maint/shadow
+source=(shadow-4.20.3.tar.xz)
+# attr-dev: ACL support needs <attr/error_context.h> as well as libacl, and configure quietly drops it otherwise
+# (--with-acl makes that an error). Extended attributes themselves are left off, as in every build so far.
+makedepends=(libxcrypt-dev acl-dev attr-dev)
+subpackages=(shadow-dev)
+# passwd, su, newgrp and a few more are setuid root. valence-build's own strip pass is skipped ('!strip') and
+# `make install-strip` strips while it installs, before the install hook sets those modes.
+options=('!strip')
+# Built without PAM: the base system has none, and login reads /etc/login.defs. When the desktop brings linux-pam
+# into every install, this is the recipe to rebuild with it.
+# 4.20.3's stand-in for nscd_flush_cache(), which is what --without-nscd compiles, takes an int, and every caller
+# passes a string: GCC 15 refuses that. Give it the real function's argument type.
+prepare(){
+  sed -i 's/^nscd_flush_cache(MAYBE_UNUSED int _1)/nscd_flush_cache(MAYBE_UNUSED const char *_1)/' lib/nscd.h
+  grep -q 'nscd_flush_cache(MAYBE_UNUSED const char \*_1)' lib/nscd.h
+}
+build(){
+  ./configure $conf_flags --disable-static --disable-nls --with-acl --without-attr --without-libpam --without-selinux --without-audit --without-tcb \
+    --without-nscd --without-sssd --without-libbsd --disable-logind --with-yescrypt --with-bcrypt \
+    --with-group-name-max-length=32
+  make -j$JOBS
+}
+package(){
+  make DESTDIR=$pkgdir install-strip
+  # Man pages: the build only installs them when it can regenerate them from DocBook (--enable-man, with xsltproc
+  # and the stylesheets on the build machine). The release has them ready-made: install those. Sections 1 and 8
+  # only for the programs this package has (no lastlog, no sulogin); the file formats and library pages all go in.
+  local f n s
+  for f in man/man[1358]/*.[1358]; do n=${f##*/}; s=${n##*.}
+    case $s in 1|8) [ -e $pkgdir/usr/bin/${n%.*} ] || [ -e $pkgdir/usr/sbin/${n%.*} ] || continue;; esac
+    install -Dm644 $f $pkgdir/usr/share/man/man$s/$n
+  done
+  [ -f $pkgdir/usr/share/man/man8/useradd.8 ] && [ -f $pkgdir/usr/share/man/man5/login.defs.5 ]
+  # login.defs: yescrypt password hashes, Valence's PATH (merged /usr), no mail spool, no lastlog file
+  sed -i -e 's|^#ENCRYPT_METHOD SHA512|ENCRYPT_METHOD YESCRYPT|' \
+    -e 's|^ENV_SUPATH.*|ENV_SUPATH\tPATH=/usr/local/bin:/usr/bin|' -e 's|^ENV_PATH.*|ENV_PATH\tPATH=/usr/local/bin:/usr/bin|' \
+    -e 's|^MAIL_CHECK_ENAB.*|MAIL_CHECK_ENAB\t\tno|' -e 's|^LASTLOG_ENAB.*|LASTLOG_ENAB\t\tno|' $pkgdir/etc/login.defs
+  grep -q '^ENCRYPT_METHOD YESCRYPT' $pkgdir/etc/login.defs
+  # useradd's defaults: new accounts join "users" when no group of their own is made, and get no mail file
+  install -d $pkgdir/etc/default
+  cat > $pkgdir/etc/default/useradd <<'DEF'
+# useradd's defaults (useradd -D shows and changes them)
+GROUP=100
+HOME=/home
+INACTIVE=-1
+EXPIRE=
+SHELL=/bin/bash
+SKEL=/etc/skel
+CREATE_MAIL_SPOOL=no
+DEF
+  # with these two files present, useradd gives each new account a range of subordinate ids (rootless containers)
+  install -m644 /dev/null $pkgdir/etc/subuid; install -m644 /dev/null $pkgdir/etc/subgid
+}

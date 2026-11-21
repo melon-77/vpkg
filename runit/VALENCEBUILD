@@ -1,0 +1,21 @@
+pkgname=runit
+pkgver=2.3.0
+pkgrel=2
+pkgdesc="UNIX init scheme with service supervision"
+license=BSD-3-Clause
+url=https://smarden.org/runit/
+source=(runit-2.3.0.tar.gz)
+builddir=$srcdir/admin/runit-2.3.0/src
+build(){
+  echo "$CC $CFLAGS" > conf-cc
+  echo "$CC $LDFLAGS" > conf-ld
+  # the Makefile compiles small probe programs and runs them where it stands: on the build machine, with its own
+  # C library (they use nothing newer than it has)
+  make -j1
+}
+package(){
+  mkdir -p $pkgdir/usr/bin
+  for c in $(cat ../package/commands); do install -m755 $c $pkgdir/usr/bin/; done
+  ln -s runit-init $pkgdir/usr/bin/init
+  mkdir -p $pkgdir/usr/share/man/man8; cp ../man/*.8 $pkgdir/usr/share/man/man8/
+}

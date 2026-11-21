@@ -1,0 +1,10 @@
+pkgname=hwdata
+pkgver=0.394
+pkgrel=1
+pkgdesc="hwdata (graphics stack)"
+license=custom
+source=(hwdata-0.394.tar.gz)
+builddir=$srcdir/hwdata-0.394
+build(){ [ -x configure ] || autoreconf -fi; ./configure $conf_flags --datadir=/usr/share --disable-blacklist; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }
+options=('!strip')

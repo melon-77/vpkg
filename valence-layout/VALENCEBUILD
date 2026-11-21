@@ -1,0 +1,20 @@
+pkgname=valence-layout
+pkgver=1.0
+pkgrel=1
+pkgdesc="Valence filesystem hierarchy (merged /usr)"
+license=MIT
+builddir=$srcdir
+package(){
+  cd $pkgdir
+  mkdir -p usr/bin usr/lib usr/share usr/include usr/local/bin usr/local/lib usr/local/share \
+    boot dev etc home media mnt opt proc root run srv sys tmp \
+    var/cache var/empty var/lib var/log var/mail var/opt var/spool var/tmp var/service etc/profile.d etc/apk/keys
+  ln -s usr/bin bin; ln -s usr/bin sbin; ln -s usr/lib lib; ln -s bin usr/sbin;
+  # the x86_64 ABI names the loader /lib64/ld-linux-x86-64.so.2; lib64 is only a link, libraries live in usr/lib
+  [ "$APK_ARCH" != x86_64 ] || { ln -s usr/lib lib64; ln -s lib usr/lib64; }
+  ln -s ../run var/run; ln -s ../run/lock var/lock
+  chmod 1777 tmp var/tmp; chmod 700 root
+}
+# options=(bootstrap): part of what every other build stands on (BUILD_BASE in scripts/valence-build-recipe), so it is
+# built before that exists as packages, in the sysroot as scripts/toolchain.sh left it
+options=(keepdirs bootstrap)

@@ -1,0 +1,10 @@
+pkgname=less
+pkgver=710
+pkgrel=1
+pkgdesc="A pager: shows text a screen at a time, with search and scrolling back"
+license="GPL-3.0-or-later OR BSD-2-Clause"
+url=https://www.greenwoodsoftware.com/less/
+source=(less-710.tar.gz)
+makedepends=(ncurses-dev)
+build(){ ./configure $conf_flags --with-regex=posix; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

@@ -1,0 +1,5 @@
+#!/bin/sh
+# udhcpc hook for Valence: BusyBox's default script sets the address, routes and DNS servers from the network.
+# (Melon also added public fallback DNS servers here, to get around musl's resolver asking every server at once.
+# glibc's resolver asks them in turn, so the network's own DNS servers are used as they are.)
+exec /usr/share/udhcpc/default.script "$@"

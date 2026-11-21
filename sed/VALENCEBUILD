@@ -1,0 +1,10 @@
+pkgname=sed
+pkgver=4.10
+pkgrel=1
+pkgdesc="GNU sed"
+license=GPL-3.0-or-later
+url=https://www.gnu.org/software/sed/
+source=(sed-4.10.tar.xz)
+makedepends=(acl-dev attr-dev)
+build(){ ./configure $conf_flags --disable-nls --without-selinux; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

@@ -1,0 +1,14 @@
+pkgname=libsndfile
+pkgver=1.2.2
+pkgrel=2
+pkgdesc="Library for reading and writing sound files (WAV, FLAC, Ogg Vorbis, ...)"
+license=LGPL-2.1-or-later
+url=https://libsndfile.github.io/libsndfile/
+source=(libsndfile-1.2.2.tar.gz)
+makedepends=(flac-dev libogg-dev libvorbis-dev opus-dev)
+subpackages=(libsndfile-dev)
+# FLAC, Ogg Vorbis and Opus through the external libraries; MP3 would also need LAME (an encoder), so no MPEG
+build(){ cmake_setup -B build -DBUILD_SHARED_LIBS=ON -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+  -DENABLE_EXTERNAL_LIBS=ON -DENABLE_MPEG=OFF \
+  -DCMAKE_DISABLE_FIND_PACKAGE_ALSA=ON -DCMAKE_DISABLE_FIND_PACKAGE_Sqlite3=ON -DINSTALL_MANPAGES=OFF; ninja -C build; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

@@ -1,0 +1,10 @@
+pkgname=libxcvt
+pkgver=0.1.3
+pkgrel=1
+pkgdesc="libxcvt (graphics stack)"
+license=custom
+source=(libxcvt-0.1.3.tar.xz)
+builddir=$srcdir/libxcvt-0.1.3
+subpackages=(libxcvt-dev)
+build(){ meson_setup  build; ninja -C build; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

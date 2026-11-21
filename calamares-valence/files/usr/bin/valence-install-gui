@@ -1,0 +1,5 @@
+#!/bin/sh
+# valence-install-gui: start the graphical installer (Calamares) from the live desktop. Calamares runs as root
+# through doas, on the live user's Wayland session.
+exec doas env WAYLAND_DISPLAY="$WAYLAND_DISPLAY" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" QT_QPA_PLATFORM=wayland \
+  XDG_SESSION_TYPE=wayland calamares "$@"

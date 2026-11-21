@@ -1,0 +1,29 @@
+pkgname=btrfs-progs
+pkgver=7.3
+pkgrel=1
+pkgdesc="Btrfs filesystem tools (mkfs.btrfs, btrfs)"
+license="GPL-2.0-only AND LGPL-2.1-or-later"
+url=https://btrfs.readthedocs.io
+source=(btrfs-progs-v7.3.tar.xz)
+builddir=$srcdir/btrfs-progs-v7.3
+makedepends=(util-linux-dev zlib-dev zstd-dev linux-headers)
+subpackages=(btrfs-progs-dev btrfs-progs-libs)
+# the links in btrfs-progs-dev point at the libraries, and the tools do not link them (scripts/check-dev-deps.py)
+depends_btrfs_progs_dev=("btrfs-progs-libs=$pkgver-r$pkgrel")
+pkgdesc_btrfs_progs_libs="Btrfs libraries (libbtrfs, libbtrfsutil)"
+# Every optional part gets its switch (rule 63). Off: the manual (built with Sphinx, which the build machine lacks,
+# so there is no btrfs-progs-doc), btrfs-convert (needs e2fsprogs' libraries), the Python binding, LZO (the kernel
+# reads and writes LZO-compressed files by itself; only "btrfs restore" would want the library) and libudev (the
+# console system runs mdev; without it the tools find a filesystem's devices through libblkid). Checksums use the
+# implementations that come with the source, so no crypto library is pulled in.
+build(){
+  ./configure $conf_flags --disable-documentation --disable-convert --disable-python --disable-lzo --disable-libudev \
+    --disable-static --enable-zstd --enable-zoned --with-crypto=builtin
+  make -j$JOBS
+}
+package(){
+  make DESTDIR=$pkgdir install
+  rm -rf $pkgdir/usr/share/bash-completion
+  local p; for p in btrfs mkfs.btrfs btrfstune fsck.btrfs; do [ -x $pkgdir/usr/bin/$p ] || { echo "btrfs-progs: $p was not installed"; return 1; }; done
+}
+pkg_libs(){ amove 'usr/lib/lib*.so.*'; }

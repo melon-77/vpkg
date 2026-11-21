@@ -1,0 +1,10 @@
+pkgname=diffutils
+pkgver=3.12
+pkgrel=1
+pkgdesc="GNU diff, cmp, diff3 and sdiff"
+license=GPL-3.0-or-later
+url=https://www.gnu.org/software/diffutils/
+source=(diffutils-3.12.tar.xz)
+# gl_cv_func_strcasecmp_works: 3.12's configure has to run that test, cannot in a cross build, and stops
+build(){ ./configure $conf_flags --disable-nls gl_cv_func_strcasecmp_works=yes; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

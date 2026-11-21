@@ -1,0 +1,11 @@
+pkgname=libnl3
+pkgver=3.12.0
+pkgrel=1
+pkgdesc="Netlink socket library"
+license=LGPL-2.1-only
+url=https://github.com/thom311/libnl
+source=(libnl-3.12.0.tar.gz)
+builddir=$srcdir/libnl-3.12.0
+subpackages=(libnl3-dev)
+build(){ ./configure $conf_flags --disable-static --disable-cli --disable-debug; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; rm -rf $pkgdir/etc/libnl; }

@@ -1,0 +1,18 @@
+pkgname=zstd
+pkgver=1.5.7
+pkgrel=2
+pkgdesc="Zstandard - fast real-time compression"
+license="BSD-3-Clause OR GPL-2.0-or-later"
+url=https://facebook.github.io/zstd
+source=(zstd-1.5.7.tar.xz)
+subpackages=(zstd-dev zstd-libs)
+makedepends=(zlib-dev)
+depends=(zstd-libs)
+pkgdesc_zstd_libs="Zstandard shared library"
+# The zstd program reads and writes .gz, .xz and .lz4 too, for whichever of zlib, liblzma and liblz4 its makefile
+# finds in the sysroot: the same recipe gave a different package depending on what had been built before it (rebuilt
+# after xz, it linked liblzma and pulled xz's library onto the ISO). Said outright: .gz yes, the other two no.
+_fmt="HAVE_ZLIB=1 HAVE_LZMA=0 HAVE_LZ4=0"
+build(){ make -j$JOBS PREFIX=/usr lib-release; make -j$JOBS -C programs PREFIX=/usr $_fmt zstd-release; }
+package(){ make PREFIX=/usr DESTDIR=$pkgdir -C lib install-shared install-static install-includes install-pc; make -C programs PREFIX=/usr DESTDIR=$pkgdir $_fmt install; }
+pkg_libs(){ amove 'usr/lib/libzstd.so.*'; }

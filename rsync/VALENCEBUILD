@@ -1,0 +1,10 @@
+pkgname=rsync
+pkgver=3.5.1
+pkgrel=1
+pkgdesc="rsync: fast incremental file transfer"
+license=GPL-3.0-or-later
+url=https://rsync.samba.org
+source=(rsync-3.5.1.tar.gz)
+makedepends=(popt-dev openssl-dev zstd-dev lz4-dev zlib-dev acl-dev)
+build(){ ./configure $conf_flags --with-included-popt=no --with-included-zlib=no --disable-xxhash --disable-md2man --disable-idn; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

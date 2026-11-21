@@ -1,0 +1,330 @@
+#!/bin/sh
+# valence-snapshot: snapshots of the system, and going back to one. It works the way NixOS's generations do, on
+# Btrfs snapshots:
+#   - Every change to the installed packages is preceded by a snapshot (apk's commit hook,
+#     /usr/lib/apk/commit_hooks.d/valence-snapshot, runs "valence-snapshot auto").
+#   - The boot menu's "Valence snapshots" lists them all, and an entry STARTS the system as it was in that snapshot
+#     (valence-update-grub writes the entries, /usr/libexec/valence/boot-snapshot is what they run). That changes
+#     nothing by itself: the next start is the default system again.
+#   - "valence-snapshot rollback" makes a snapshot the default: the one that was started from the boot menu, at
+#     once; otherwise the previous one, from the next start on.
+#   - Nothing is lost by it: what a rollback replaces is kept as a snapshot too.
+#
+# What valence-install lays out (one Btrfs filesystem, and /boot on its own FAT32 partition):
+#   @            /             the system: what a snapshot holds and a rollback replaces
+#   @home        /home         not in snapshots: a rollback leaves your files alone
+#   @log         /var/log      not in snapshots: the logs of what went wrong are still there afterwards
+#   @snapshots   /.snapshots   <n>/root is snapshot n (read-only), <n>/info says when and why it was taken
+#   @swap        /swap         the swap file (Btrfs cannot snapshot a subvolume with an active swap file)
+# and what comes and goes beside them:
+#   @trial       a writable copy of a snapshot, made by a boot menu entry and run for that session
+#   @old         the system a rollback replaced while it was running; deleted at the next start
+# The kernel and the initramfs live on /boot, outside Btrfs, so a snapshot keeps its own: each kernel file is copied
+# to /boot/snapshots/<name>.<first 16 digits of its sha256>, once however many snapshots use it, and a rollback puts
+# the snapshot's files back.
+#
+# /etc/valence/snapshot.conf (optional):  KEEP=10  how many of apk's snapshots are kept (the oldest go first)
+#                                         AUTO=no  apk takes none
+set -u
+PATH=/usr/bin
+SNAP=/.snapshots
+BOOTSNAP=/boot/snapshots
+TOP=/run/valence/btrfs-top
+TRIAL=/run/valence/trial        # holds the snapshot's number while the system runs from a boot menu entry
+KEEP=10
+AUTO=yes
+[ -r /etc/valence/snapshot.conf ] && . /etc/valence/snapshot.conf
+case $KEEP in ''|*[!0-9]*) KEEP=10 ;; esac
+
+usage(){ cat <<'EOF'
+usage: valence-snapshot [list]            show the snapshots
+       valence-snapshot create [TEXT]     take one now
+       valence-snapshot rollback [-y] [N] make snapshot N the system that starts by default
+                                          (without N: the one started from the boot menu, or else the one
+                                          from before the last package change)
+       valence-snapshot delete N...       remove snapshots
+
+apk takes a snapshot before every change to the installed packages and keeps the newest 10. A snapshot holds /
+(programs, /etc, the kernel) but not /home or /var/log.
+
+The boot menu (press Esc while the computer starts) has "Valence snapshots": an entry starts the system as it was
+in that snapshot, for that session. If that is the system you want, "valence-snapshot rollback" there makes it the
+default; if not, restart and nothing has changed.
+EOF
+}
+say(){ echo "valence-snapshot: $*"; }
+die(){ echo "valence-snapshot: $*" >&2; exit 1; }
+
+# RUNNING: the subvolume the system runs from: @ normally, @trial when a boot menu entry started a snapshot, @old
+# between a rollback and the restart. False on a system that is not laid out as above.
+RUNNING=
+layout(){
+  RUNNING=$(btrfs subvolume show / 2>/dev/null | head -n 1)
+  case $RUNNING in @|@old|@trial) ;; *) return 1 ;; esac
+  mountpoint -q $SNAP || return 1
+  [ "$(btrfs subvolume show $SNAP 2>/dev/null | head -n 1)" = @snapshots ] || return 1
+  mountpoint -q /boot || return 1
+}
+need_layout(){
+  layout || die "no snapshots on this system: / is not the Btrfs layout valence-install makes
+  (subvolume @ on /, @snapshots on /.snapshots, /boot on its own partition)"
+}
+# changes go into @ only: anything changed in another state would be gone, or not where it is expected, after a restart
+need_default(){
+  case $RUNNING in
+    @trial) die "this is the system as it was in snapshot $(cat $TRIAL 2>/dev/null), started from the boot menu.
+  Make it the default first (valence-snapshot rollback), or restart into the default system." ;;
+    @old)   die "this system was rolled back and has not been restarted since. Restart first:
+  what changes now would be gone after the restart." ;;
+  esac
+}
+
+# the whole filesystem (every subvolume) mounted on $TOP, for the steps that replace @
+top_mount(){
+  mountpoint -q $TOP && return 0
+  t_dev=$(findmnt -n -v -o SOURCE -M $SNAP 2>/dev/null | tail -n 1)
+  [ -b "$t_dev" ] || die "cannot tell which device $SNAP is on"
+  mkdir -p $TOP && mount -t btrfs -o subvolid=5 "$t_dev" $TOP || die "cannot mount the top of the Btrfs filesystem ($t_dev)"
+}
+top_umount(){ if mountpoint -q $TOP 2>/dev/null; then umount $TOP 2>/dev/null; fi; return 0; }
+trap top_umount EXIT
+
+ids(){ ls -1 $SNAP 2>/dev/null | grep -E '^[0-9]+$' | sort -n; }
+info(){ sed -n "s/^$2=//p" "$SNAP/$1/info" 2>/dev/null | head -n 1; }
+
+# the kernel files on /boot: keep a copy of each under $BOOTSNAP and print a "boot=<name>:<hash>" line for it
+save_boot(){
+  mkdir -p $BOOTSNAP || return 1
+  for s_f in /boot/vmlinuz-* /boot/initramfs-* /boot/System.map-* /boot/config-*; do
+    [ -f "$s_f" ] || continue
+    case $s_f in *.new) continue ;; esac
+    s_name=${s_f##*/}; s_h=$(sha256sum "$s_f" | cut -c1-16); [ -n "$s_h" ] || return 1
+    if [ ! -f "$BOOTSNAP/$s_name.$s_h" ]; then
+      cp "$s_f" "$BOOTSNAP/.copy.tmp" && mv "$BOOTSNAP/.copy.tmp" "$BOOTSNAP/$s_name.$s_h" || { rm -f "$BOOTSNAP/.copy.tmp"; return 1; }
+    fi
+    echo "boot=$s_name:$s_h"
+  done
+}
+# put snapshot $1's kernel files back on /boot, and take away kernel files that came after it
+restore_boot(){
+  r_want=$(sed -n 's/^boot=//p' "$SNAP/$1/info")
+  for r_e in $r_want; do
+    r_name=${r_e%:*}; r_h=${r_e##*:}
+    cmp -s "$BOOTSNAP/$r_name.$r_h" "/boot/$r_name" && continue
+    cp "$BOOTSNAP/$r_name.$r_h" /boot/.restore.tmp && mv /boot/.restore.tmp "/boot/$r_name" || { rm -f /boot/.restore.tmp; return 1; }
+  done
+  for r_f in /boot/vmlinuz-* /boot/initramfs-* /boot/System.map-* /boot/config-*; do
+    [ -f "$r_f" ] || continue
+    r_known=0; for r_e in $r_want; do [ "${r_e%:*}" != "${r_f##*/}" ] || r_known=1; done
+    [ $r_known = 1 ] || rm -f "$r_f"
+  done
+}
+# copies under $BOOTSNAP that no snapshot uses any more
+clean_boot(){
+  [ -d $BOOTSNAP ] || return 0
+  b_used=$(cat $SNAP/*/info 2>/dev/null | sed -n 's/^boot=\(.*\):\([0-9a-f]*\)$/\1.\2/p' | sort -u)
+  for b_f in $BOOTSNAP/* $BOOTSNAP/.copy.tmp; do
+    [ -f "$b_f" ] || continue
+    printf '%s\n' "$b_used" | grep -q -F -x -e "${b_f##*/}" || rm -f "$b_f"
+  done
+}
+# the line for / in a root's fstab names the subvolume it is mounted from. A root that runs under another name (@trial,
+# @old) says so, or "mount -a" would take / for unmounted and mount the default system over it.
+fstab_root(){   # fstab_root FILE FROM TO
+  sed -i -E "/^[^#[:space:]]+[[:space:]]+\/[[:space:]]/ s/subvol=$2(,|[[:space:]]|\$)/subvol=$3\1/" "$1"
+}
+
+# create TYPE TEXT [SOURCE]: a read-only snapshot of SOURCE (default: the running system). Prints its number.
+# TYPE is update (taken by apk), manual, or rollback (what a rollback replaced).
+create(){
+  c_text=$(printf '%s' "$2" | tr -c -d 'A-Za-z0-9 ._:/=+,@-' | cut -c1-70)
+  c_last=$(ids | tail -n 1); c_id=$(( ${c_last:-0} + 1 ))
+  mkdir "$SNAP/$c_id" || return 1
+  if ! btrfs subvolume snapshot -r "${3:-/}" "$SNAP/$c_id/root" >/dev/null; then rmdir "$SNAP/$c_id"; return 1; fi
+  if { echo "date=$(date '+%Y-%m-%d %H:%M')"; echo "type=$1"; echo "text=$c_text"; echo "kernel=$(uname -r)"; save_boot; } > "$SNAP/$c_id/info.new"; then
+    mv "$SNAP/$c_id/info.new" "$SNAP/$c_id/info"
+  else
+    echo "valence-snapshot: the kernel files could not be copied to $BOOTSNAP (is /boot full?)" >&2
+    btrfs subvolume delete "$SNAP/$c_id/root" >/dev/null 2>&1; rm -rf "$SNAP/$c_id"; return 1
+  fi
+  echo "$c_id"
+}
+remove(){
+  [ -d "$SNAP/$1" ] || { say "there is no snapshot $1" >&2; return 1; }
+  if [ -d "$SNAP/$1/root" ]; then btrfs subvolume delete "$SNAP/$1/root" >/dev/null || return 1; fi
+  rm -rf "$SNAP/$1"
+}
+# apk's snapshots beyond the newest $KEEP, and the "before a rollback" ones beyond the newest 3; ones taken by hand stay
+prune(){
+  for p_rule in update:$KEEP rollback:3; do
+    p_seen=0
+    for p_id in $(ids | sort -rn); do
+      [ "$(info "$p_id" type)" = "${p_rule%:*}" ] || continue
+      p_seen=$((p_seen + 1)); [ $p_seen -le "${p_rule#*:}" ] || remove "$p_id"
+    done
+  done
+}
+# what a rollback or a boot menu entry left beside @: delete whatever of it the system is not running from
+cleanup(){
+  [ -e $SNAP/.cleanup ] || return 0
+  top_mount
+  l_left=0
+  for l_s in @old @trial @new @prev; do
+    [ -d "$TOP/$l_s" ] || continue
+    if [ "$RUNNING" = "$l_s" ]; then l_left=1; else btrfs subvolume delete "$TOP/$l_s" >/dev/null || l_left=1; fi
+  done
+  [ $l_left = 1 ] || rm -f $SNAP/.cleanup
+  top_umount
+}
+menu(){ valence-update-grub "$@" >/dev/null || say "warning: the boot menu could not be rewritten (valence-update-grub)" >&2; }
+
+cmd_list(){
+  need_layout
+  printf '%4s  %-16s  %s\n' "Nr" "Taken" "What"
+  for id in $(ids); do printf '%4s  %-16s  %s\n' "$id" "$(info "$id" date)" "$(info "$id" text)"; done
+  case $RUNNING in
+    @)      printf '%4s  %-16s  %s\n' "*" "now" "the system as it is (what starts by default)" ;;
+    @trial) printf '%4s  %-16s  %s\n' "*" "now" "snapshot $(cat $TRIAL 2>/dev/null), started from the boot menu for this session"
+            echo "The default system is unchanged. valence-snapshot rollback makes this one the default." ;;
+    @old)   printf '%4s  %-16s  %s\n' "*" "now" "the system a rollback replaced, until the restart" ;;
+  esac
+  [ -n "$(ids)" ] || echo "No snapshots yet: apk takes one before every change to the installed packages."
+}
+
+cmd_create(){
+  need_layout; need_default; cleanup
+  id=$(create manual "${*:-taken by hand}") || die "no snapshot could be taken"
+  menu --snapshots
+  say "snapshot $id taken"
+}
+
+cmd_auto(){   # apk's pre-commit hook. Silent and successful where there is nothing to snapshot.
+  [ "$AUTO" != no ] || exit 0
+  layout || exit 0
+  need_default; cleanup
+  # what apk was asked to do, without its options and paths: "apk add less-doc"
+  # (or what the caller says it is about to do: valence-wish takes one snapshot for a whole wish list)
+  what=$(tr '\0' '\n' < /proc/$PPID/cmdline 2>/dev/null | sed '1s|^.*/||' | grep -v -e '^-' -e / | xargs 2>/dev/null)
+  case $what in apk*) ;; *) what="a package change" ;; esac
+  [ -z "${VALENCE_SNAPSHOT_TEXT:-}" ] || what=$(printf '%s' "$VALENCE_SNAPSHOT_TEXT" | tr -c -d 'A-Za-z0-9 ._:/=+,@-' | cut -c1-60)
+  id=$(create update "before $what") || die "no snapshot could be taken, so nothing was changed.
+  To go on without one: apk --no-commit-hooks ..."
+  rm -f $SNAP/.origin
+  prune; clean_boot
+  menu --snapshots
+  say "snapshot $id taken (valence-snapshot rollback $id brings this state back)"
+}
+
+cmd_delete(){
+  need_layout
+  [ $# -gt 0 ] || { usage; exit 1; }
+  rc=0
+  for id in "$@"; do
+    case $id in ''|*[!0-9]*) say "$id is not a snapshot number" >&2; rc=1; continue ;; esac
+    if remove "$id"; then say "snapshot $id removed"; else rc=1; fi
+  done
+  clean_boot; menu --snapshots
+  exit $rc
+}
+
+cmd_rollback(){
+  yes=0 id=
+  for a in "$@"; do
+    case $a in -y|--yes) yes=1 ;; ''|*[!0-9]*) usage; exit 1 ;; *) id=$a ;; esac
+  done
+  need_layout
+  # the system a boot menu entry started is made the default as it runs; anything else takes effect at the next start
+  trial=; [ "$RUNNING" != @trial ] || trial=$(cat $TRIAL 2>/dev/null)
+  adopt=0
+  if [ -n "$trial" ] && { [ -z "$id" ] || [ "$id" = "$trial" ]; }; then adopt=1; id=$trial; fi
+  if [ -z "$id" ]; then
+    # the snapshot from before the last package change; after a rollback, the one before the snapshot rolled back to
+    origin=$(cat $SNAP/.origin 2>/dev/null)
+    for i in $(ids | sort -rn); do
+      [ "$(info "$i" type)" = update ] || continue
+      case $origin in ''|*[!0-9]*) ;; *) [ "$i" -lt "$origin" ] || continue ;; esac
+      id=$i; break
+    done
+    [ -n "$id" ] || die "there is no earlier snapshot from before a package change (valence-snapshot list shows what there is)"
+  fi
+  [ -d "$SNAP/$id/root" ] && [ -f "$SNAP/$id/info" ] || die "there is no snapshot $id (valence-snapshot list)"
+  for e in $(sed -n 's/^boot=//p' "$SNAP/$id/info"); do
+    [ -f "$BOOTSNAP/${e%:*}.${e##*:}" ] || die "snapshot $id's ${e%:*} is missing from $BOOTSNAP: nothing changed"
+  done
+  if [ $yes = 0 ]; then
+    if [ $adopt = 1 ]; then echo "Make this system, snapshot $id ($(info "$id" date), $(info "$id" text)), the one that starts by default?"
+    else echo "Roll back to snapshot $id ($(info "$id" date), $(info "$id" text)), from the next start on?"; fi
+    cat <<EOF
+  /  is then what it was in that snapshot: the programs, the settings in /etc, the kernel.
+  /home and /var/log stay as they are. The system it replaces is kept as a snapshot.
+EOF
+    printf 'Type yes: '; read -r ans; [ "$ans" = yes ] || die "nothing changed"
+  fi
+  top_mount
+  [ -d "$TOP/@snapshots/$id/root" ] || die "snapshot $id is not where it should be on the disk: nothing changed"
+  for s in @new @prev; do
+    [ ! -d "$TOP/$s" ] || btrfs subvolume delete "$TOP/$s" >/dev/null || die "$s is in the way on the disk: nothing changed"
+  done
+  # keep what is being replaced: the default system, @
+  kept=
+  if [ "$RUNNING" = @old ]; then
+    :   # an earlier rollback is waiting for a restart: its @ was never started and is simply replaced
+  elif [ "$RUNNING" = @ ]; then
+    kept=$(create rollback "before rolling back to $id") || die "the present system could not be kept as a snapshot: nothing changed"
+  elif [ -d $TOP/@ ]; then
+    kept=$(create rollback "before rolling back to $id" $TOP/@) || die "the default system could not be kept as a snapshot: nothing changed"
+  fi
+  if [ $adopt = 1 ]; then
+    # the running system takes the name @ (in one step where the kernel can: renameat2 RENAME_EXCHANGE)
+    if [ -d $TOP/@ ]; then
+      mv --exchange --no-target-directory $TOP/@trial $TOP/@ 2>/dev/null ||
+        { mv $TOP/@ $TOP/@prev && mv $TOP/@trial $TOP/@ && mv $TOP/@prev $TOP/@trial; } || die "@ could not be replaced"
+      btrfs subvolume delete $TOP/@trial >/dev/null || : > $SNAP/.cleanup     # what @ was (kept as a snapshot above)
+    else
+      mv $TOP/@trial $TOP/@ || die "@ could not be put in place"
+    fi
+    fstab_root /etc/fstab @trial @
+    rm -f $TRIAL
+  else
+    if [ "$RUNNING" = @ ] && [ -d $TOP/@old ]; then
+      btrfs subvolume delete $TOP/@old >/dev/null || die "@old is in the way on the disk: nothing changed"
+    fi
+    btrfs subvolume snapshot "$TOP/@snapshots/$id/root" $TOP/@new >/dev/null || die "snapshot $id could not be copied: nothing changed"
+    if [ -d $TOP/@ ]; then
+      mv --exchange --no-target-directory $TOP/@new $TOP/@ 2>/dev/null ||
+        { mv $TOP/@ $TOP/@prev && mv $TOP/@new $TOP/@ && mv $TOP/@prev $TOP/@new; } || die "@ could not be replaced"
+      # @new is now what @ was. If the system is running from it, it stays until the restart, as @old
+      if [ "$RUNNING" = @ ]; then mv $TOP/@new $TOP/@old && fstab_root /etc/fstab @ @old
+      else btrfs subvolume delete $TOP/@new >/dev/null; fi
+    else
+      mv $TOP/@new $TOP/@ || die "@ could not be put in place"
+    fi
+    : > $SNAP/.cleanup
+  fi
+  echo "$id" > $SNAP/.origin
+  restore_boot "$id" || die "/ is rolled back, but snapshot $id's kernel files could not be put back on /boot.
+  Free some space on /boot and run: valence-snapshot rollback $id"
+  prune; clean_boot
+  menu
+  sync
+  if [ $adopt = 1 ]; then
+    echo "Snapshot $id is the system now, and what starts by default."
+    [ -z "$kept" ] || echo "What it replaced is snapshot $kept: valence-snapshot rollback $kept would bring that back."
+  else
+    echo "Rolled back to snapshot $id. It takes effect at the next start: reboot"
+    [ -z "$kept" ] || echo "The system it replaces is snapshot $kept: valence-snapshot rollback $kept would bring that back."
+  fi
+}
+
+case ${1:-list} in -h|--help|help) usage; exit 0 ;; esac
+[ "$(id -u)" = 0 ] || exec doas /usr/bin/valence-snapshot "$@"
+cmd=${1:-list}; [ $# -eq 0 ] || shift
+case $cmd in
+  list)     cmd_list ;;
+  create)   cmd_create "$@" ;;
+  auto)     cmd_auto ;;
+  delete)   cmd_delete "$@" ;;
+  rollback) cmd_rollback "$@" ;;
+  cleanup)  layout && cleanup ;;
+  *)        usage; exit 1 ;;
+esac

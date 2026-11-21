@@ -1,0 +1,10 @@
+pkgname=nasm
+pkgver=3.01
+pkgrel=1
+pkgdesc="NASM: the x86 assembler (FFmpeg, x264 and libjpeg-turbo's fast paths are written for it)"
+license=BSD-2-Clause
+url=https://www.nasm.us
+source=(nasm-3.01.tar.xz)
+makedepends=(zlib-dev)
+build(){ ./configure $conf_flags; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

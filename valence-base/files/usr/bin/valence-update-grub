@@ -1,0 +1,178 @@
+#!/bin/sh
+# valence-update-grub: (re)write /boot/grub/grub.cfg for the installed system
+#   valence-update-grub --snapshots   only /boot/grub/snapshots.cfg, the menu's "Valence snapshots" (valence-snapshot
+#                                     runs this after taking or removing one)
+set -e
+[ -d /boot/grub ] || exit 0
+devof(){ awk -v m="$1" '$2==m{d=$1} END{print d}' /proc/mounts; }
+rootdev=${VALENCE_ROOT_DEV:-$(devof /)}
+# a root the kernel mounted itself shows as /dev/root, which has no device node: take root= from the command line
+if [ ! -b "$rootdev" ]; then
+  r=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^root=//p' | tail -1)
+  case $r in PARTUUID=*|UUID=*) rootdev=$(blkid -o device -t "$r" | head -1) ;; /dev/*) rootdev=$r ;; esac
+fi
+bootdev=${VALENCE_BOOT_DEV:-$(devof /boot)}; [ -n "$bootdev" ] || bootdev=$rootdev
+bootuuid=$(blkid -s UUID -o value "$bootdev")
+# an encrypted root (LUKS, opened by the initramfs from valence-mkinitramfs) or a plain partition
+luksdev=
+case $rootdev in
+  /dev/mapper/*|/dev/dm-*)
+    luksdev=$(cryptsetup status "$rootdev" 2>/dev/null | awk '$1=="device:"{print $2}')
+    [ -n "$luksdev" ] || { echo "valence-update-grub: $rootdev is a device-mapper device but not a LUKS mapping" >&2; exit 1; }
+    rootspec="root=/dev/mapper/valenceroot cryptroot=UUID=$(cryptsetup luksUUID "$luksdev")" ;;
+  *) partuuid=$(blkid -s PARTUUID -o value "$rootdev"); [ -n "$partuuid" ] && rootspec="root=PARTUUID=$partuuid" ;;
+esac
+[ -n "${rootspec:-}" ] && [ -n "$bootuuid" ] || { echo "valence-update-grub: cannot identify root ($rootdev) or boot ($bootdev) device" >&2; exit 1; }
+[ -r /etc/default/grub ] && . /etc/default/grub
+rootfs=$(blkid -s TYPE -o value "$rootdev" || true)
+fsarg=; [ -z "$rootfs" ] || fsarg=" rootfstype=$rootfs"
+# A Btrfs root is a subvolume. In valence-install's layout the system is @, and the menu starts @ whatever this runs
+# from: @old between a rollback and the restart, @trial when a boot menu entry started a snapshot (valence-snapshot).
+subvol=
+if [ "$rootfs" = btrfs ]; then
+  subvol=$(btrfs subvolume show / 2>/dev/null | head -n 1)
+  case $subvol in @|@old|@trial) subvol=@ ;; /) subvol= ;; esac
+fi
+[ -z "$subvol" ] || fsarg="$fsarg rootflags=subvol=$subvol"
+cmdline="$rootspec$fsarg rw ${GRUB_CMDLINE_LINUX_DEFAULT:-quiet} ${GRUB_CMDLINE_LINUX}"
+# kernel path relative to the filesystem grub reads it from
+if [ "$bootdev" != "$rootdev" ]; then kpath=""; else kpath="/boot"; fi
+# "Valence snapshots" in the boot menu: an entry per snapshot (valence-snapshot), newest first, the way NixOS lists
+# its generations. An entry starts the kernel the snapshot was taken with (valence-snapshot keeps it in
+# /boot/snapshots), with the read-only snapshot as / and /usr/libexec/valence/boot-snapshot as init, which starts the
+# system from a writable copy of the snapshot. Choosing one changes nothing else: the first entry stays the default
+# system until "valence-snapshot rollback" says otherwise. The entries are in a file of their own that grub.cfg
+# reads, so that taking a snapshot rewrites only that file.
+snapcfg=/boot/grub/snapshots.cfg
+: > $snapcfg.new
+if [ "$subvol" = @ ] && [ "$bootdev" != "$rootdev" ] && [ -d /.snapshots ]; then
+  n=0
+  for id in $(ls -1 /.snapshots 2>/dev/null | grep -E '^[0-9]+$' | sort -rn); do
+    i=/.snapshots/$id/info
+    if [ ! -f "$i" ] || [ ! -d "/.snapshots/$id/root" ]; then continue; fi
+    when=$(sed -n 's/^date=//p' "$i" | head -n 1); what=$(sed -n 's/^text=//p' "$i" | head -n 1 | tr -d "'")
+    for e in $(sed -n 's/^boot=\(vmlinuz-.*\)$/\1/p' "$i"); do
+      kname=${e%:*}; flav=${kname#vmlinuz-}
+      if [ ! -f "/boot/snapshots/$kname.${e##*:}" ]; then continue; fi
+      ih=$(sed -n "s/^boot=initramfs-$flav\.img://p" "$i" | head -n 1)
+      initrd=
+      if [ -n "$ih" ]; then
+        if [ ! -f "/boot/snapshots/initramfs-$flav.img.$ih" ]; then continue; fi
+        initrd="    initrd /snapshots/initramfs-$flav.img.$ih"
+      elif [ -n "$luksdev" ]; then
+        continue     # an encrypted root does not start without its initramfs
+      fi
+      title="Snapshot $id: $when, $what"; [ "$flav" = valence ] || title="$title ($flav)"
+      [ $n -gt 0 ] || echo "submenu 'Valence snapshots' {" >> $snapcfg.new
+      n=$((n + 1))
+      cat >> $snapcfg.new <<CFG
+  menuentry '$title' {
+    linux /snapshots/$kname.${e##*:} $rootspec rootfstype=btrfs rootflags=subvol=@snapshots/$id/root rw init=/usr/libexec/valence/boot-snapshot valence.snapshot=$id ${GRUB_CMDLINE_LINUX_DEFAULT:-quiet} ${GRUB_CMDLINE_LINUX}
+$initrd
+  }
+CFG
+    done
+  done
+  [ $n -eq 0 ] || echo "}" >> $snapcfg.new
+fi
+mv $snapcfg.new $snapcfg
+if [ "${1:-}" = --snapshots ]; then exit 0; fi
+# the Valence boot menu theme (from valence-desktop). /boot may be its own partition, so the theme is copied next to grub.cfg.
+theme=/usr/share/valence/grub/themes/valence
+rm -rf /boot/grub/themes/valence /boot/grub/valence-bg.png
+themeline=
+if [ -f "$theme/theme.txt" ]; then
+  mkdir -p /boot/grub/themes && cp -r "$theme" /boot/grub/themes/valence
+  for f in /boot/grub/themes/valence/*.pf2; do themeline="$themeline; loadfont $kpath/grub/themes/valence/${f##*/}"; done
+  themeline="; insmod png$themeline; set theme=$kpath/grub/themes/valence/theme.txt"
+fi
+# other systems on this machine (dual boot): Windows Boot Manager on any EFI system partition (UEFI), Windows'
+# bootmgr on an NTFS partition (BIOS). Partitions that aren't mounted are looked at read-only in a temporary directory.
+others=
+look(){ dev=$1 fs=$2 file=$3
+  mp=$(awk -v d="$dev" '$1==d{print $2; exit}' /proc/mounts); tmp=
+  # (in the installer's chroot /proc/mounts shows the live system's paths)
+  if [ -z "$mp" ] || [ ! -d "$mp" ]; then tmp=$(mktemp -d); mount -o ro -t "$fs" "$dev" "$tmp" 2>/dev/null || { rmdir "$tmp"; return 1; }; mp=$tmp; fi
+  [ -f "$mp$file" ]; found=$?
+  [ -n "$tmp" ] && { umount "$tmp"; rmdir "$tmp"; }
+  return $found; }
+for dev in $(blkid -o device -t TYPE=vfat 2>/dev/null); do
+  look "$dev" vfat /EFI/Microsoft/Boot/bootmgfw.efi && others="$others efi:$(blkid -s UUID -o value "$dev")"
+done
+for dev in $(blkid -o device -t TYPE=ntfs 2>/dev/null); do
+  look "$dev" ntfs3 /bootmgr && others="$others bios:$(blkid -s UUID -o value "$dev")"
+done
+# the boot menu: shown for 5 s next to another system (dual boot); otherwise hidden and skipped after 1 s, so a
+# valence-only computer doesn't wait on a menu with one choice (hold Shift, or press Esc, to open it: "safe graphics" is there).
+# /etc/default/grub: GRUB_TIMEOUT=<seconds>, GRUB_TIMEOUT_STYLE=menu|hidden
+if [ -n "$others" ]; then : "${GRUB_TIMEOUT:=5}" "${GRUB_TIMEOUT_STYLE:=menu}"; else : "${GRUB_TIMEOUT:=1}" "${GRUB_TIMEOUT_STYLE:=hidden}"; fi
+
+cat > /boot/grub/grub.cfg.new <<CFG
+# generated by valence-update-grub - edit /etc/default/grub instead
+set timeout_style=$GRUB_TIMEOUT_STYLE
+set timeout=$GRUB_TIMEOUT
+set default=0
+insmod part_gpt
+insmod part_msdos
+insmod fat
+insmod btrfs
+insmod xfs
+insmod ext2
+search --no-floppy --fs-uuid --set=root $bootuuid
+$( [ "${GRUB_SERIAL:-0}" = 1 ] && printf 'serial --unit=0 --speed=115200\nterminal_input console serial\nterminal_output console serial\n' )
+if loadfont unicode; then set gfxmode=auto; insmod all_video; insmod gfxterm; terminal_output gfxterm $( [ "${GRUB_SERIAL:-0}" = 1 ] && echo serial )$themeline; fi
+set menu_color_normal=light-gray/black
+set menu_color_highlight=black/light-green
+# keep a graphical framebuffer for the kernel (simpledrm), so the console shows even without a GPU driver
+set gfxpayload=keep
+CFG
+for k in /boot/vmlinuz-*; do
+  [ -f "$k" ] || continue; f=${k##*/}; flav=${f#vmlinuz-}
+  name="Valence Linux"; [ "$flav" = valence ] || name="Valence Linux ($flav)"
+  initrd=; [ -f /boot/initramfs-$flav.img ] && initrd="  initrd $kpath/initramfs-$flav.img"
+  cat >> /boot/grub/grub.cfg.new <<CFG
+menuentry '$name' {
+  linux $kpath/$f $cmdline
+$initrd
+}
+menuentry '$name, safe graphics' {
+  linux $kpath/$f $cmdline nomodeset
+$initrd
+}
+CFG
+done
+for o in $others; do
+  u=${o#*:}
+  case $o in
+    efi:*) cat >> /boot/grub/grub.cfg.new <<CFG
+if [ "\$grub_platform" = efi ]; then
+menuentry 'Windows' {
+  insmod part_gpt
+  insmod fat
+  insmod chain
+  search --no-floppy --fs-uuid --set=root $u
+  chainloader /EFI/Microsoft/Boot/bootmgfw.efi
+}
+fi
+CFG
+    ;;
+    bios:*) cat >> /boot/grub/grub.cfg.new <<CFG
+if [ "\$grub_platform" = pc ]; then
+menuentry 'Windows' {
+  insmod part_msdos
+  insmod ntfs
+  insmod ntldr
+  search --no-floppy --fs-uuid --set=root $u
+  ntldr /bootmgr
+}
+fi
+CFG
+    ;;
+  esac
+done
+# (the snapshots come last: below the systems that start normally)
+cat >> /boot/grub/grub.cfg.new <<CFG
+if [ -s $kpath/grub/snapshots.cfg ]; then source $kpath/grub/snapshots.cfg; fi
+CFG
+mv /boot/grub/grub.cfg.new /boot/grub/grub.cfg
+echo "valence-update-grub: wrote /boot/grub/grub.cfg"

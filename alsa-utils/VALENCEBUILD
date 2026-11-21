@@ -1,0 +1,11 @@
+pkgname=alsa-utils
+pkgver=1.2.15.2
+pkgrel=1
+pkgdesc="ALSA utilities (amixer, alsamixer, aplay, alsactl)"
+license=GPL-2.0-or-later
+url=https://www.alsa-project.org
+source=(alsa-utils-1.2.15.2.tar.bz2)
+makedepends=(alsa-lib-dev ncurses-dev)
+build(){ ./configure $conf_flags --disable-xmlto --disable-rst2man --disable-nls --disable-bat --disable-alsaconf \
+   --with-udev-rules-dir=/usr/lib/udev/rules.d --with-systemdsystemunitdir=no --disable-alsaloop; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; rm -rf $pkgdir/usr/lib/udev; }

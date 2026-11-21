@@ -1,0 +1,106 @@
+#!/bin/sh
+# valencefetch: system summary next to Valence's mark, the grey V.
+#   valencefetch            logo + info
+#   valencefetch --art      logo only
+. /etc/os-release 2>/dev/null
+E=$(printf '\033')
+R="${E}[0m" B="${E}[1m" D="${E}[2m"
+P="${E}[1;38;5;146m"      # the labels: the logo's greys have this cool tint
+O="${E}[38;5;255m"        # the name
+
+# ---------------------------------------------------------------- the V
+# The drawing of branding/valence-logo.svg (art/logo.py): the V is 408 by 354 in its 512 box, here 38 pixels wide
+# and 33 high. Each arm has the drawing's own run of greys, darker on the left arm and lighter on the right; a pixel
+# is filled when most of it (5 of 9 points) lies inside the V.
+art=$(awk -v E="$E" '
+function clamp(v){ return v<0?0:(v>1?1:v) }
+function mix(c1,c2,t,   a,b){ split(c1,a,";"); split(c2,b,";"); t=clamp(t)
+  return int(a[1]+(b[1]-a[1])*t) ";" int(a[2]+(b[2]-a[2])*t) ";" int(a[3]+(b[3]-a[3])*t) }
+function arm(x,y){ return y<=446 && x<=256 && x>=52+(y-92)*204/354 && (y>318 || x<=170+(y-92)*86/226) }
+BEGIN{
+  W=38; PH=34                         # pixels: 38 wide, 34 tall (two per text row via half blocks)
+  L0="195;201;214"; L1="89;96;122"; R0="242;244;248"; R1="141;149;168"
+  sc=408/W
+  for(py=0;py<PH;py++) for(px=0;px<W;px++){
+    nl=0; nr=0; tl=0; tr=0
+    for(sy=0;sy<3;sy++) for(sx=0;sx<3;sx++){
+      x=52+(px+(sx+0.5)/3)*sc; y=92+(py+(sy+0.5)/3)*sc
+      if(arm(x,y))          { nl++; tl+=((x-52)/204+(y-92)/354)/2 }
+      else if(arm(512-x,y)) { nr++; tr+=((460-x)/204+(y-92)/354)/2 }
+    }
+    if(nl+nr>=5) col[py,px]=(nl>=nr) ? mix(L0,L1,tl/nl) : mix(R0,R1,tr/nr)
+  }
+  for(row=0;row<PH/2;row++){
+    line=""
+    for(px=0;px<W;px++){
+      t=col[2*row,px]; b=col[2*row+1,px]
+      if(t=="" && b=="")      line=line E "[0m "
+      else if(t=="")          line=line E "[0;38;2;" b "m\342\226\204"
+      else if(b=="")          line=line E "[0;38;2;" t "m\342\226\200"
+      else                    line=line E "[0;38;2;" t ";48;2;" b "m\342\226\200"
+    }
+    print line E "[0m"
+  }
+}')
+
+if [ "$1" = --art ]; then printf '%s\n' "$art"; exit 0; fi
+
+# ---------------------------------------------------------------- facts
+bar(){ # bar USED TOTAL -> 14-cell meter coloured by fill level
+  awk -v u="$1" -v t="$2" -v E="$E" 'BEGIN{ if(t<=0){print ""; exit} p=u/t; n=int(p*14+0.5)
+    c=(p<0.6)?"114":(p<0.85)?"215":"203"; s=E "[38;5;" c "m"; for(i=0;i<14;i++) s=s (i<n?"━":E "[38;5;238m━"); printf "%s%s %d%%", s, E "[0m", p*100 }'; }
+up=$(awk '{s=int($1); d=int(s/86400); h=int(s%86400/3600); m=int(s%3600/60); if(d) printf "%dd ",d; if(h||d) printf "%dh ",h; printf "%dm", m}' /proc/uptime)
+eval "$(awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{printf "mt=%d mu=%d", t/1024, (t-a)/1024}' /proc/meminfo)"
+eval "$(df -P / 2>/dev/null | awk 'NR==2{printf "dt=%d du=%d", $2/1024, $3/1024}')"
+cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1 | sed 's/ with .*//; s/(R)//g; s/(TM)//g; s/  */ /g')
+cores=$(grep -c ^processor /proc/cpuinfo)
+host=$(cat /sys/class/dmi/id/product_name 2>/dev/null); vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)
+case $host in ""|"To be filled"*|"System Product Name") host=$vendor ;; esac
+virt=$(valence-detect-virt 2>/dev/null) && host="${host:-virtual machine} ${D}(${virt} VM)${R}"
+gpu=; for c in /sys/class/drm/card[0-9]; do [ -r $c/device/vendor ] || continue
+  drv=$(basename "$(readlink $c/device/driver 2>/dev/null)")
+  case $(cat $c/device/vendor) in 0x1002) v=AMD;; 0x8086) v=Intel;; 0x10de) v=NVIDIA;; 0x1af4) v=virtio;; 0x1234) v=QEMU;; *) v=GPU;; esac
+  gpu="${gpu:+$gpu, }$v${drv:+ ($drv)}"; done
+pkgs=$(apk info 2>/dev/null | wc -l)
+svcs=$(ls /var/service 2>/dev/null | wc -l)
+running=$(for s in /var/service/*; do sv status "$s" 2>/dev/null; done | grep -c '^run:')
+glibc=$(/usr/lib/libc.so.6 2>/dev/null | sed -n '1s/.*version \([0-9.]*[0-9]\).*/\1/p')
+sh_name=$(basename "${SHELL:-/bin/sh}"); [ "$sh_name" = bash ] && sh_name="bash ${BASH_VERSION%%(*}"
+bat=; for b in /sys/class/power_supply/BAT*; do [ -r $b/capacity ] && bat="$(cat $b/capacity)% ($(cat $b/status 2>/dev/null | tr 'A-Z' 'a-z'))"; done
+wifi=; for w in /sys/class/net/*/wireless; do [ -d "$w" ] && wifi=$(basename "$(dirname "$w")"); done
+ip=$(ip -4 -o addr 2>/dev/null | awk '$2!="lo"{split($4,a,"/"); print a[1] " (" $2 ")"; exit}')
+user=$(id -un) hn=$(cat /proc/sys/kernel/hostname)
+
+title="${P}${user}${R}${B}@${R}${P}${hn}${R}   ${B}${O}v a l e n c e${R}"
+rule="${D}$(printf '%*s' $(( ${#user} + ${#hn} + 17 )) '' | sed 's/ /─/g')${R}"
+L(){ printf '%s%-8s%s %s' "$P" "$1" "$R" "$2"; }
+info="$title
+$rule
+$(L os "${PRETTY_NAME:-valence} ${D}$(uname -m)${R}")
+$(L host "${host:-unknown}")
+$(L kernel "$(uname -r)")
+$(L uptime "$up")
+$(L init "runit  ${D}${running}/${svcs} services up${R}")
+$(L libc "glibc ${glibc}")
+$(L pkgs "$pkgs ${D}(apk)${R}")
+$(L shell "$sh_name")
+$(L cpu "${cpu:-unknown} ${D}× ${cores}${R}")
+${gpu:+$(L gpu "$gpu")
+}$(L memory "$(bar $mu $mt) ${D}${mu}/${mt} MiB${R}")
+$(L disk "$(bar $du $dt) ${D}$(awk -v u=$du -v t=$dt 'BEGIN{printf "%.1f/%.1f", u/1024, t/1024}') GiB${R}")
+${bat:+$(L battery "$bat")
+}${ip:+$(L network "$ip${wifi:+ ${D}wifi: $wifi${R}}")
+}
+$(i=0; s=""; while [ $i -lt 8 ]; do s="$s${E}[4${i}m   "; i=$((i+1)); done; printf '%s%s' "$s" "$R")
+$(i=0; s=""; while [ $i -lt 8 ]; do s="$s${E}[10${i}m   "; i=$((i+1)); done; printf '%s%s' "$s" "$R")"
+
+# ---------------------------------------------------------------- side by side
+printf '%s\n' "$art" > /tmp/.vf-art.$$; printf '%s\n' "$info" > /tmp/.vf-info.$$
+echo
+awk -v A=/tmp/.vf-art.$$ -v I=/tmp/.vf-info.$$ 'BEGIN{
+  while((getline l < A)>0) a[++na]=l; while((getline l < I)>0) b[++nb]=l
+  off=int((na-nb)/2); if(off<0) off=0; n=(na>nb+off)?na:nb+off
+  for(k=1;k<=n;k++){ left=(k<=na)?a[k]:sprintf("%38s",""); right=(k-off>=1 && k-off<=nb)?b[k-off]:""; print "  " left "   " right }
+}'
+echo
+rm -f /tmp/.vf-art.$$ /tmp/.vf-info.$$

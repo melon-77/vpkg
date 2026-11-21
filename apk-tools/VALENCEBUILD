@@ -1,0 +1,15 @@
+pkgname=apk-tools
+pkgver=3.0.8
+pkgrel=2
+pkgdesc="Alpine Package Keeper - package manager for Valence"
+license=GPL-2.0-only
+url=https://gitlab.alpinelinux.org/alpine/apk-tools
+source=(apk-tools-3.0.8.tar.gz)
+makedepends=(openssl-dev zlib-dev zstd-dev)
+subpackages=(apk-tools-dev)
+build(){ meson_setup -Dlua=disabled -Ddocs=disabled -Dhelp=disabled -Dpython=disabled -Dtests=disabled -Dcrypto_backend=openssl -Dzstd=enabled build; ninja -C build; }
+package(){ DESTDIR=$pkgdir ninja -C build install
+  install -Dm644 $M/keys/valence-signing.rsa.pub $pkgdir/etc/apk/keys/valence-signing.rsa.pub
+  # the offline backup key, once there is one (AGENTS.md, "Signing keys and rotation")
+  [ ! -f $M/keys/valence-backup.rsa.pub ] || install -Dm644 $M/keys/valence-backup.rsa.pub $pkgdir/etc/apk/keys/valence-backup.rsa.pub
+  mkdir -p $pkgdir/etc/apk/protected_paths.d $pkgdir/usr/lib/apk/db; }

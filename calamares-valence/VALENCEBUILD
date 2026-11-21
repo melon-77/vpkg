@@ -1,0 +1,13 @@
+pkgname=calamares-valence
+pkgver=0.1
+pkgrel=13
+pkgdesc="Valence's Calamares setup: branding, job configs and finishing scripts (live ISO only)"
+license=GPL-3.0-or-later
+depends=(calamares)
+builddir=$srcdir
+makedepends=(calamares-dev qt6-qtbase-dev)
+package(){
+  cp -a $startdir/files/. $pkgdir/
+  mkdir -p $pkgdir/usr/share/calamares/branding
+  cp -a $startdir/branding/valence $pkgdir/usr/share/calamares/branding/
+  chmod 755 $pkgdir/usr/bin/* $pkgdir/usr/libexec/valence/cal-*; }

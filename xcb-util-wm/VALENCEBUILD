@@ -1,0 +1,11 @@
+pkgname=xcb-util-wm
+pkgver=0.4.2
+pkgrel=1
+pkgdesc="xcb-util-wm (graphics stack)"
+license=custom
+source=(xcb-util-wm-0.4.2.tar.xz)
+builddir=$srcdir/xcb-util-wm-0.4.2
+makedepends=(libxcb-dev)
+subpackages=(xcb-util-wm-dev)
+build(){ [ -x configure ] || autoreconf -fi; ./configure $conf_flags --disable-static; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

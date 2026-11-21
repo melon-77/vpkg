@@ -1,0 +1,12 @@
+pkgname=python3-pexpect
+pkgver=4.9.0
+pkgrel=1
+pkgdesc="Pexpect: drive interactive programs from Python (Valence's QEMU tests use it)"
+license=ISC
+url=https://github.com/pexpect/pexpect
+source=(pexpect-4.9.0.tar.gz)
+# py_install puts the module into python3's site-packages, whose name it reads from the sysroot
+makedepends=(python3)
+builddir=$srcdir/pexpect-4.9.0
+depends=(python3 python3-ptyprocess)
+package(){ py_install pexpect pexpect; }

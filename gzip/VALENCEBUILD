@@ -1,0 +1,14 @@
+pkgname=gzip
+pkgver=1.15
+pkgrel=2
+pkgdesc="GNU gzip, with zcat, zgrep, zless and friends"
+license=GPL-3.0-or-later
+url=https://www.gnu.org/software/gzip/
+source=(gzip-1.15.tar.xz)
+# 64-bit ARM: gzip.h defines a macro "head", and gzip.c includes it before the system headers; the kernel's
+# <asm/sigcontext.h>, which <signal.h> brings on aarch64, has struct fields called head, and the macro breaks them.
+# gzip.c (the only file that meets both) reads <signal.h> first, before the macro exists. (Not through CFLAGS:
+# "-include signal.h" there reaches configure's own tests, and the header ended up in the Makefile.)
+build(){ [ "$VALENCE_ARCH" != aarch64 ] || sed -i 's|^#include "tailor.h"$|#include <signal.h>\n#include "tailor.h"|' gzip.c
+  ./configure $conf_flags; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

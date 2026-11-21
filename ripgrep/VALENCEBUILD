@@ -1,0 +1,26 @@
+pkgname=ripgrep
+pkgver=15.2.0
+pkgrel=2
+pkgdesc="rg: recursively search directories for a regex pattern, fast"
+license="Unlicense OR MIT"
+url=https://github.com/BurntSushi/ripgrep
+source=(ripgrep-15.2.0.tar.gz)
+makedepends=(pcre2-dev)
+# written in Rust (rule 46)
+options=(rust)
+
+# PCRE2_SYS_STATIC=0: Valence's PCRE2, never a static copy that pcre2-sys builds for itself
+# GIT_CEILING_DIRECTORIES: build.rs asks git for a commit hash, and the source tree sits inside Valence's checkout
+prepare(){ cargo_fetch; }
+build(){ PCRE2_SYS_STATIC=0 GIT_CEILING_DIRECTORIES=$srcdir cargo_build --features pcre2; }
+package(){
+  local rg=$(cargo_out)/rg
+  install -Dm755 $rg $pkgdir/usr/bin/rg
+  # rg writes its own man page and bash completion: a Valence program, started through the sysroot's loader (rule 18)
+  mkdir -p $pkgdir/usr/share/man/man1 $pkgdir/usr/share/bash-completion/completions
+  $M/scripts/valence-run $rg --generate man > $pkgdir/usr/share/man/man1/rg.1
+  $M/scripts/valence-run $rg --generate complete-bash > $pkgdir/usr/share/bash-completion/completions/rg
+  [ -s $pkgdir/usr/share/man/man1/rg.1 ]
+  install -Dm644 LICENSE-MIT $pkgdir/usr/share/licenses/ripgrep/LICENSE-MIT
+  install -Dm644 UNLICENSE $pkgdir/usr/share/licenses/ripgrep/UNLICENSE
+}

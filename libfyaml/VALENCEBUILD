@@ -1,0 +1,10 @@
+pkgname=libfyaml
+pkgver=0.9.4
+pkgrel=1
+pkgdesc="libfyaml (graphics stack)"
+license=custom
+source=(libfyaml-0.9.4.tar.gz)
+builddir=$srcdir/pantoniou-libfyaml-deb1ec7
+subpackages=(libfyaml-dev)
+build(){ cmake_setup -B build -DBUILD_SHARED_LIBS=ON -DENABLE_NETWORK=OFF -DBUILD_TESTING=OFF $([ "$APK_ARCH" != x86 ] || echo -DENABLE_PORTABLE_TARGET=ON); ninja -C build; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

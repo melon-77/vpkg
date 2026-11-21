@@ -1,0 +1,55 @@
+#!/bin/sh
+# boot-snapshot: what the boot menu's "Valence snapshots" entries run (valence-update-grub writes them). The kernel
+# starts this as init, with a read-only snapshot as /:
+#     init=/usr/libexec/valence/boot-snapshot valence.snapshot=<n> rootflags=subvol=@snapshots/<n>/root
+# It makes a writable copy of the snapshot (the subvolume @trial), moves the system's root onto the copy and starts
+# the normal init there: the system runs as it was in that snapshot, for this session. Nothing else changes. The
+# default system (@) is untouched and starts again next time, unless "valence-snapshot rollback" is run in the
+# session, which makes the copy the default. A copy that was not kept is deleted at the next normal start.
+# (The way NixOS's boot menu starts an older generation.)
+PATH=/usr/bin
+mountpoint -q /proc || mount -t proc proc /proc
+mountpoint -q /sys  || mount -t sysfs sys /sys
+mountpoint -q /dev  || mount -t devtmpfs dev /dev
+mount -t tmpfs -o mode=0755,nosuid,nodev run /run
+n=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^valence\.snapshot=//p' | tail -n 1)
+fail(){
+  echo; echo "  Valence: $*"
+  echo "  The default system was not changed. Press Enter to restart; the boot menu's other entries are still there."
+  read -r _
+  # this is process 1: restart directly (there is no init to ask)
+  busybox reboot -f 2>/dev/null; echo b > /proc/sysrq-trigger; sleep 30; exit 1
+}
+echo
+echo "  Valence: starting the system as it was in snapshot $n"
+echo "  (for this session: the default system is not changed)"
+echo
+# the device / is on. The kernel calls a root it mounted itself /dev/root, which has no device node.
+dev=$(awk '$2 == "/" { d = $1 } END { print d }' /proc/mounts)
+if [ ! -b "$dev" ]; then
+  r=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^root=//p' | tail -n 1)
+  case $r in /dev/*) dev=$r ;; *) dev=$(findfs "$r" 2>/dev/null) ;; esac
+fi
+[ -b "$dev" ] || fail "cannot tell which device the system is on"
+T=/run/valence/btrfs-top; N=/run/valence/newroot
+mkdir -p $T $N
+mount -t btrfs -o subvolid=5 "$dev" $T || fail "the Btrfs filesystem on $dev could not be mounted"
+[ -d "$T/@snapshots/$n/root" ] || fail "snapshot $n is not on the disk"
+if [ -d $T/@trial ]; then
+  btrfs subvolume delete $T/@trial >/dev/null || fail "the copy an earlier session left (@trial) could not be removed"
+fi
+btrfs subvolume snapshot "$T/@snapshots/$n/root" $T/@trial >/dev/null || fail "snapshot $n could not be copied (is the disk full?)"
+: > $T/@snapshots/.cleanup
+# the copy's fstab names the subvolume it runs from (valence-snapshot's fstab_root says why)
+sed -i -E '/^[^#[:space:]]+[[:space:]]+\/[[:space:]]/ s/subvol=@(,|[[:space:]]|$)/subvol=@trial\1/' $T/@trial/etc/fstab
+opts=$(awk '$1 !~ /^#/ && $2 == "/" { print $4; exit }' $T/@trial/etc/fstab)
+case ,$opts, in *,subvol=@trial,*) ;; *) opts=subvol=@trial ;; esac
+umount $T
+mount -t btrfs -o "$opts" "$dev" $N || fail "the copy of snapshot $n could not be mounted"
+echo "$n" > /run/valence/trial
+cd $N || fail "the copy of snapshot $n could not be entered"
+pivot_root . mnt || fail "the system's root could not be moved onto the copy"
+# / is the copy now and the snapshot is on /mnt: bring the kernel's filesystems over, let go of the snapshot
+for m in proc sys dev run; do mount --move /mnt/$m /$m; done
+umount -l /mnt
+exec /usr/bin/init

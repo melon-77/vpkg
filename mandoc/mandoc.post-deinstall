@@ -1,0 +1,5 @@
+#!/bin/sh
+# the index is made by the trigger, so no package owns it
+rm -f /usr/share/man/mandoc.db
+rmdir /usr/share/man 2>/dev/null
+exit 0

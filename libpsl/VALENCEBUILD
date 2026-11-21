@@ -1,0 +1,10 @@
+pkgname=libpsl
+pkgver=0.21.2
+pkgrel=1
+pkgdesc="libpsl (graphics stack)"
+license=custom
+source=(libpsl-0.21.2.tar.xz)
+builddir=$srcdir/libpsl-0.21.2
+subpackages=(libpsl-dev)
+build(){ meson_setup -Dtests=false -Ddocs=false -Druntime=no -Dbuiltin=true -Dpsl_file=/usr/share/publicsuffix/public_suffix_list.dat build; ninja -C build; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

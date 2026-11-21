@@ -1,0 +1,340 @@
+#!/bin/sh
+# valence-install: the console installer, on both live ISOs. It needs root and runs itself through doas otherwise.
+#
+# Layout on an erased disk (GPT, boots on both BIOS and UEFI; the 32-bit edition uses MBR):
+#   1  1 MiB   BIOS boot (GRUB core for legacy BIOS)
+#   2  1 GiB   FAT32  -> /boot   (kernel, GRUB, EFI/BOOT/BOOTX64.EFI or BOOTIA32.EFI)
+#   3  rest    Btrfs  -> /   subvolumes: @ (the system), @home, @log (/var/log), @snapshots (/.snapshots), @swap.
+#                           apk takes a snapshot of @ before every change; valence-snapshot rolls back to one.
+# On UEFI, a disk with an EFI system partition and at least 20 GiB unallocated can take Valence alongside what is on it.
+#
+# Unattended use (for testing): set VALENCE_DISK, VALENCE_HOSTNAME, VALENCE_ROOTPW, VALENCE_USER,
+# VALENCE_USERPW and VALENCE_YES=1 (and optionally VALENCE_PROFILE, VALENCE_MODE=alongside|erase,
+# VALENCE_WIFI_SSID/VALENCE_WIFI_PSK,
+# VALENCE_ENCRYPT=y with VALENCE_LUKSPW to encrypt / with LUKS2; /boot stays plain and a small initramfs asks for
+# the passphrase, VALENCE_SERIAL=1 for a serial console on the installed system, VALENCE_WISHLIST=FILE for a wish
+# list to apply, ROADMAP.md phase 8: without it, a valence-wishlist.txt on a USB stick or another drive is offered).
+#
+# The desktop ISO also has the graphical installer, Calamares (valence-install-gui); this one installs the
+# same thing in a handful of prompts.
+#   VALENCE_PROFILE=base     console system
+#   VALENCE_PROFILE=desktop  everything the desktop ISO installs (KDE Plasma, Wayland, Flatpak, ...)
+set -e
+PATH=/usr/bin
+case ${1:-} in -h|--help) cat <<'EOF'
+usage: valence-install
+
+Installs Valence from the live ISO onto a disk. It asks for the disk (erased, or on UEFI next to Windows or
+another system in the disk's unallocated space), what to install (base or desktop), the host name, the
+passwords, a Wi-Fi network and disk encryption (LUKS). Needs root. A wish list (valence-wish --help) found
+on a USB stick or another drive, as valence-wishlist.txt at the top of a partition, is offered and applied to the
+new system.
+
+Unattended (set as root: doas doesn't pass them on): VALENCE_DISK VALENCE_HOSTNAME VALENCE_ROOTPW VALENCE_USER
+VALENCE_USERPW VALENCE_PROFILE=base|desktop VALENCE_MODE=alongside|erase VALENCE_WIFI_SSID VALENCE_WIFI_PSK
+VALENCE_ENCRYPT=y VALENCE_LUKSPW VALENCE_SERIAL=1 VALENCE_WISHLIST=FILE|none VALENCE_YES=1 (questions with a
+default take it, a wish list that was found among them)
+EOF
+  exit 0 ;; esac
+REPO=${VALENCE_REPO:-/media/valence/valence/repo}
+TARGET=/mnt/valence
+P=$(printf '\033[1;38;5;212m') B=$(printf '\033[1m') R=$(printf '\033[0m')
+
+say(){ printf '%s=>%s %s%s%s\n' "$P" "$R" "$B" "$*" "$R"; }
+die(){ printf '%s!! %s%s\n' "$P" "$*" "$R" >&2; exit 1; }
+ask(){ # ask VAR "question" [default]   (unattended, VALENCE_YES=1: questions with a default take it)
+  eval "cur=\${$1:-}"; [ -n "$cur" ] && return 0
+  if [ "${VALENCE_YES:-}" = 1 ] && [ $# -ge 3 ]; then eval "$1=\$3"; return 0; fi
+  printf '%s?%s %s%s: ' "$P" "$R" "$2" "${3:+ [$3]}"; read -r ans; [ -z "$ans" ] && ans=$3; eval "$1=\$ans"; }
+askpw(){ eval "cur=\${$1:-}"; [ -n "$cur" ] && return 0
+  while :; do printf '%s?%s %s: ' "$P" "$R" "$2"; stty -echo; read -r a; stty echo; echo
+    printf '%s?%s again: ' "$P" "$R"; stty -echo; read -r b; stty echo; echo
+    [ -n "$a" ] && [ "$a" = "$b" ] && break; echo "passwords did not match or were empty"; done; eval "$1=\$a"; }
+
+SYSIMG=${VALENCE_SYSIMG:-/media/valence/valence/rootfs.sqfs}
+[ -f "$SYSIMG" ] || die "Valence system image not found at $SYSIMG (are you on the live ISO?)"
+# root from here on (passwordless doas for the live desktop's user)
+[ "$(id -u)" = 0 ] || exec doas /usr/bin/valence-install "$@"
+ARCH=$(apk --print-arch)
+case $ARCH in x86) EFI_TARGET=i386-efi EFI_FILE=BOOTIA32.EFI ;; *) EFI_TARGET=x86_64-efi EFI_FILE=BOOTX64.EFI ;; esac
+
+cat <<EOF
+  This puts Valence on a whole disk, erasing it, or next to Windows or another system in the disk's
+  unallocated space (shrink Windows first, in Windows' Disk Management).
+
+EOF
+say "Disks"
+lsblk -d -n -o NAME,SIZE,MODEL,TYPE | grep -v -E ' (rom|loop)$' | grep -v '^loop' | sed 's/^/   /'
+echo
+ask VALENCE_DISK "Disk to install to (e.g. sda, nvme0n1, vda)"
+DISK=/dev/${VALENCE_DISK#/dev/}
+[ -b "$DISK" ] || die "$DISK is not a block device"
+# dual boot: on a UEFI machine, a GPT disk that already has an EFI system partition and enough unallocated space
+# can take Valence next to what is there; nothing existing is touched (the EFI partition only gets a Valence folder)
+MODE=erase ESP= FREE_START= FREE_SECTORS=
+if [ "$ARCH" != x86 ] && [ -d /sys/firmware/efi ]; then
+  ESP=$(sfdisk -d "$DISK" 2>/dev/null | awk -F'[ ,:]+' 'toupper($0) ~ /TYPE=C12A7328-F81F-11D2-BA4B-00A0C93EC93B/ {print $1; exit}')
+  set -- $(sfdisk -F "$DISK" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $3 > max {max = $3; s = $1} END {if (max) print s, max}')
+  FREE_START=${1:-} FREE_SECTORS=${2:-0}
+  freemib=$(( FREE_SECTORS * $(blockdev --getss "$DISK") / 1048576 ))
+  if [ -n "$ESP" ] && [ $freemib -ge 20480 ]; then
+    say "$DISK has an EFI system partition ($ESP) and $(( freemib / 1024 )) GiB of unallocated space"
+    ask VALENCE_MODE "Install Valence alongside what is on it, in the free space, or erase the whole disk (alongside/erase)" alongside
+    case $VALENCE_MODE in alongside|a) MODE=alongside ;; erase|e) MODE=erase ;; *) die "answer alongside or erase" ;; esac
+  elif [ -n "$ESP" ]; then
+    echo "   $DISK has other systems but under 20 GiB of unallocated space: to keep them, shrink one first (Windows:"
+    echo "   Disk Management, 'Shrink Volume') and start again; carrying on erases the whole disk."
+  fi
+fi
+PROFILES=$(ls /usr/share/valence/profiles 2>/dev/null | grep -v "\.services$" | xargs)
+DEFPROFILE=base; [ -f /usr/share/valence/profiles/desktop ] && DEFPROFILE=desktop
+ask VALENCE_PROFILE "What to install ($PROFILES)" $DEFPROFILE
+[ -f /usr/share/valence/profiles/$VALENCE_PROFILE ] || die "unknown profile $VALENCE_PROFILE"
+ask VALENCE_HOSTNAME "Hostname" valence
+askpw VALENCE_ROOTPW "Root password"
+ask VALENCE_USER "Your user name (empty for none)" ""
+[ -n "$VALENCE_USER" ] && askpw VALENCE_USERPW "Password for $VALENCE_USER"
+if ls -d /sys/class/net/*/wireless >/dev/null 2>&1; then
+  ask VALENCE_WIFI_SSID "Wi-Fi network name (empty to skip)" ""
+  [ -n "$VALENCE_WIFI_SSID" ] && askpw VALENCE_WIFI_PSK "Wi-Fi password"
+fi
+ENCRYPT=n
+if command -v cryptsetup >/dev/null; then
+  ask VALENCE_ENCRYPT "Encrypt the system with a passphrase (LUKS) (y/n)" n
+  case $VALENCE_ENCRYPT in y|Y|yes) ENCRYPT=y; askpw VALENCE_LUKSPW "Disk encryption passphrase" ;; esac
+fi
+# a wish list (ROADMAP.md, phase 8): VALENCE_WISHLIST, or a valence-wishlist.txt on a USB stick or another drive
+if [ -z "${VALENCE_WISHLIST:-}" ] && found=$(valence-wish --find --exclude "$DISK" 2>/dev/null); then
+  say "A wish list: $found"; sed 's/^/   /' "$found"
+  ask VALENCE_WISHLIST "Apply it to the new system (the file, or none)" "$found"
+fi
+case ${VALENCE_WISHLIST:-} in none|n|no|N) VALENCE_WISHLIST= ;; esac
+[ -z "${VALENCE_WISHLIST:-}" ] || valence-wish --check "$VALENCE_WISHLIST" || die "the wish list $VALENCE_WISHLIST cannot be used (above)"
+if [ "${VALENCE_YES:-}" != 1 ]; then
+  if [ $MODE = alongside ]; then
+    printf '\n%sInstall Valence into the free space on %s (the other partitions stay as they are)? Type YES:%s ' "$B" "$DISK" "$R"
+  else
+    printf '\n%sErase %s and install Valence? Type YES:%s ' "$B" "$DISK" "$R"
+  fi
+  read -r ok; [ "$ok" = YES ] || die "aborted"
+fi
+
+case $DISK in *[0-9]) PP=${DISK}p ;; *) PP=$DISK ;; esac
+say "Partitioning $DISK"
+if [ $MODE = alongside ]; then
+  # two new partitions in the largest free region: /boot (FAT32, extended boot loader type, which Windows leaves alone)
+  # and / ; the existing EFI system partition becomes /boot/efi
+  bootsec=$(( 1073741824 / $(blockdev --getss "$DISK") ))
+  printf 'start=%s, size=%s, type=BC13C2FF-59E6-4262-A352-B275FD6F7172, name="valence-boot"\ntype=4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709, name="valence"\n' \
+    "$FREE_START" "$bootsec" | sfdisk -q --append -W always "$DISK"
+  partx -u "$DISK" 2>/dev/null || true; sleep 1; command -v udevadm >/dev/null && udevadm settle 2>/dev/null; mdev -s 2>/dev/null; sleep 1
+  BOOTP=$(sfdisk -d "$DISK" | awk '/name="valence-boot"/ {print $1; exit}')
+  ROOTP=$(sfdisk -d "$DISK" | awk '/name="valence"/ {print $1; exit}')
+  [ -b "$BOOTP" ] && [ -b "$ROOTP" ] || die "the new partitions did not appear"
+elif [ "$ARCH" = x86 ]; then
+  for m in $(grep "^$DISK" /proc/mounts | cut -d' ' -f2 | sort -r); do umount "$m"; done
+  wipefs -a -q "$DISK"
+  # 32-bit machines: classic MBR with an active boot partition. Many old BIOSes won't boot a GPT disk.
+  sfdisk -q -W always "$DISK" <<EOF
+label: dos
+size=1GiB, type=ef, bootable
+type=83
+EOF
+  BOOTN=1 ROOTN=2
+else
+  for m in $(grep "^$DISK" /proc/mounts | cut -d' ' -f2 | sort -r); do umount "$m"; done
+  wipefs -a -q "$DISK"
+  sfdisk -q -W always "$DISK" <<EOF
+label: gpt
+size=1MiB, type=21686148-6449-6E6F-744E-656564454649, name="bios"
+size=1GiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name="boot"
+type=4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709, name="valence"
+EOF
+  BOOTN=2 ROOTN=3
+fi
+if [ $MODE = erase ]; then
+  partx -u "$DISK" 2>/dev/null || true; sleep 1; command -v udevadm >/dev/null && udevadm settle 2>/dev/null; mdev -s 2>/dev/null; sleep 1
+  for n in $BOOTN $ROOTN; do [ -b "$PP$n" ] || die "partition $PP$n did not appear"; done
+  BOOTP=$PP$BOOTN ROOTP=$PP$ROOTN
+fi
+
+say "Creating filesystems (FAT32 /boot, Btrfs /)"
+mkfs.vfat -F 32 -n VALENCEBOOT "$BOOTP" >/dev/null
+ROOTDEV=$ROOTP
+if [ $ENCRYPT = y ]; then
+  say "Encrypting $ROOTP (LUKS2)"
+  modprobe -q dm_crypt 2>/dev/null || true
+  printf '%s' "$VALENCE_LUKSPW" | cryptsetup luksFormat --batch-mode --type luks2 "$ROOTP" -
+  printf '%s' "$VALENCE_LUKSPW" | cryptsetup open --key-file - "$ROOTP" valenceroot
+  ROOTDEV=/dev/mapper/valenceroot
+fi
+mkfs.btrfs -q -f -L valence "$ROOTDEV"
+
+say "Mounting"
+# Subvolumes. @ is the system: what a snapshot holds and a rollback replaces. /home and /var/log are their own, so a
+# rollback touches neither your files nor the logs of what went wrong. @snapshots holds the snapshots, @swap the swap
+# file (a subvolume with an active swap file cannot be snapshotted).
+BTRFSOPT=noatime,compress=zstd:1
+mkdir -p $TARGET; mount -t btrfs "$ROOTDEV" $TARGET
+for s in @ @home @log @snapshots @swap; do btrfs subvolume create $TARGET/$s >/dev/null; done
+chmod 750 $TARGET/@snapshots; chmod 700 $TARGET/@swap
+umount $TARGET
+mount -t btrfs -o subvol=@,$BTRFSOPT "$ROOTDEV" $TARGET
+mkdir -p $TARGET/home $TARGET/var/log $TARGET/swap $TARGET/boot; mkdir -m 750 $TARGET/.snapshots
+mount -t btrfs -o subvol=@home,$BTRFSOPT "$ROOTDEV" $TARGET/home
+mount -t btrfs -o subvol=@log,$BTRFSOPT "$ROOTDEV" $TARGET/var/log
+mount -t btrfs -o subvol=@swap,$BTRFSOPT "$ROOTDEV" $TARGET/swap
+# (@snapshots is not mounted here: without /.snapshots, apk's snapshot hook does nothing while the system is put together)
+mount -t vfat -o umask=0077 "$BOOTP" $TARGET/boot
+[ $MODE = alongside ] && { mkdir -p $TARGET/boot/efi; mount -t vfat -o umask=0077 "$ESP" $TARGET/boot/efi; }
+say "Copying the Valence system"
+mkdir -p /run/valence-src; mount -t squashfs -o loop,ro "$SYSIMG" /run/valence-src
+# (--xattrs: file capabilities are extended attributes, and the desktop's packages have some)
+tar -C /run/valence-src --exclude=./boot --xattrs --xattrs-include='*' -cf - . | tar -C $TARGET --xattrs --xattrs-include='*' -xpf -
+for f in /run/valence-src/boot/*; do [ -f "$f" ] && cp "$f" $TARGET/boot/; done
+umount /run/valence-src
+mkdir -p $TARGET/dev $TARGET/proc $TARGET/sys $TARGET/run
+for d in dev proc sys; do mount --bind /$d $TARGET/$d; done
+
+# make the new system's package set match the profile: the system image can hold more than the profile
+# (the desktop ISO's image has the desktop and the live-only installer packages), or less
+grep -v '^#' /usr/share/valence/profiles/$VALENCE_PROFILE | grep . > /tmp/valence-want
+DEL=$(grep -vxF -f /tmp/valence-want $TARGET/etc/apk/world | xargs || true)
+ADD=$(grep -vxF -f $TARGET/etc/apk/world /tmp/valence-want | xargs || true)
+APKT="apk --root $TARGET --arch $ARCH --repositories-file /dev/null --repository $REPO/$ARCH/Packages.adb --no-cache"
+if [ -n "$DEL" ]; then say "Removing what the $VALENCE_PROFILE profile doesn't include"; $APKT del $DEL >/dev/null; fi
+if [ -n "$ADD" ]; then say "Installing the $VALENCE_PROFILE profile with apk"; $APKT add $ADD; fi
+# in a virtual machine: the guest tools (screen resize, clean shutdown from the host, time sync, ...)
+VMSVCS=
+if VIRT=$(valence-detect-virt); then
+  if $APKT add valence-vm-guest >/dev/null 2>&1; then
+    say "Running in a $VIRT VM: added the guest tools"
+    VMSVCS=$(cat $TARGET/usr/share/valence/vm-guest.services 2>/dev/null)
+  fi
+fi
+
+say "Configuring the system"
+mkdir -p $TARGET/var/lib/valence
+cp -a "$REPO" $TARGET/var/lib/valence/repo
+# the online Valence repo (GitHub) first, the copy from the ISO for offline use
+{ echo "$(cat /usr/share/valence/repo-url)/$ARCH/Packages.adb"; echo "/var/lib/valence/repo/$ARCH/Packages.adb"; } > $TARGET/etc/apk/repositories
+echo "$VALENCE_HOSTNAME" > $TARGET/etc/hostname
+sed -i "s/^127.0.1.1.*/127.0.1.1\t$VALENCE_HOSTNAME/" $TARGET/etc/hosts
+ROOT_UUID=$(blkid -s UUID -o value "$ROOTDEV"); BOOT_UUID=$(blkid -s UUID -o value "$BOOTP")
+cat > $TARGET/etc/fstab <<EOF
+# <device>                                 <mountpoint> <type> <options>                 <dump> <pass>
+UUID=$ROOT_UUID  /            btrfs  subvol=@,$BTRFSOPT           0  0
+UUID=$ROOT_UUID  /home        btrfs  subvol=@home,$BTRFSOPT       0  0
+UUID=$ROOT_UUID  /var/log     btrfs  subvol=@log,$BTRFSOPT        0  0
+UUID=$ROOT_UUID  /.snapshots  btrfs  subvol=@snapshots,$BTRFSOPT  0  0
+UUID=$ROOT_UUID  /swap        btrfs  subvol=@swap,$BTRFSOPT       0  0
+UUID=$BOOT_UUID                             /boot        vfat   defaults,umask=0077       0      2
+$([ $MODE = alongside ] && echo "UUID=$(blkid -s UUID -o value "$ESP")                             /boot/efi    vfat   defaults,umask=0077       0      2")
+tmpfs                                      /tmp         tmpfs  nosuid,nodev,mode=1777    0      0
+EOF
+# a swap file (RAM size, at most 8 GiB, and never more than an eighth of the disk); the desktop adds zram
+memk=$(awk '/MemTotal/{print $2}' /proc/meminfo); freek=$(df -Pk $TARGET | awk 'NR==2{print $4}')
+swapm=$(( memk / 1024 )); [ $swapm -gt 8192 ] && swapm=8192
+[ $(( freek / 1024 / 8 )) -lt $swapm ] && swapm=$(( freek / 1024 / 8 ))
+if [ $swapm -ge 256 ]; then
+  say "Creating a ${swapm} MiB swap file"
+  # (a swap file on Btrfs must not be copy-on-write or compressed: mkswapfile sees to both)
+  btrfs filesystem mkswapfile --size ${swapm}m --uuid clear $TARGET/swap/swapfile >/dev/null
+  echo "/swap/swapfile                             none         swap   defaults,pri=10           0      0" >> $TARGET/etc/fstab
+fi
+# shadow's tools; the hash method is ENCRYPT_METHOD in the target's /etc/login.defs (yescrypt)
+echo "root:$VALENCE_ROOTPW" | chroot $TARGET chpasswd
+if [ -n "$VALENCE_USER" ]; then
+  # -c: the login screen shows the full-name field. -g users: one shared group, as Valence's accounts always had
+  chroot $TARGET useradd -m -s /bin/bash -g users -c "$VALENCE_USER" "$VALENCE_USER"
+  # one group at a time: some of these only exist once their package is installed (lpadmin comes with CUPS)
+  for g in wheel audio video input render plugdev netdev kvm cdrom lpadmin; do chroot $TARGET usermod -aG $g "$VALENCE_USER" 2>/dev/null || true; done
+  echo "$VALENCE_USER:$VALENCE_USERPW" | chroot $TARGET chpasswd
+fi
+SVCS="getty-tty1 getty-tty2 getty-tty3 mdevd syslogd klogd crond ntpd dhcp"
+# <profile>.services: one service per line; "name" enables it, "-name" drops a base service
+# (the desktop profile swaps mdevd/dhcp for udevd and NetworkManager)
+if [ -f /usr/share/valence/profiles/$VALENCE_PROFILE.services ]; then
+  for s in $(grep -v '^#' /usr/share/valence/profiles/$VALENCE_PROFILE.services); do
+    case $s in -*) SVCS=$(printf '%s\n' $SVCS | grep -vxF -- "${s#-}" | xargs) ;; *) SVCS="$SVCS $s" ;; esac
+  done
+fi
+if [ -n "${VALENCE_WIFI_SSID:-}" ]; then
+  if [ -d $TARGET/etc/NetworkManager ]; then
+    # desktop: NetworkManager owns Wi-Fi, so hand it the network instead of wpa_supplicant's own config
+    NMC=$TARGET/etc/NetworkManager/system-connections; mkdir -p $NMC
+    cat > "$NMC/valence-wifi.nmconnection" <<EOF
+[connection]
+id=$VALENCE_WIFI_SSID
+type=wifi
+autoconnect=true
+
+[wifi]
+mode=infrastructure
+ssid=$VALENCE_WIFI_SSID
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk=$VALENCE_WIFI_PSK
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+EOF
+    chmod 600 "$NMC/valence-wifi.nmconnection"
+  else
+    wpa_passphrase "$VALENCE_WIFI_SSID" "$VALENCE_WIFI_PSK" | grep -v '#psk' >> $TARGET/etc/wpa_supplicant/wpa_supplicant.conf
+    SVCS="$SVCS wpa_supplicant dhcp-wifi"
+  fi
+fi
+SVCS="$SVCS $VMSVCS"
+if [ "${VALENCE_SERIAL:-0}" = 1 ]; then   # serial console, for headless machines and VMs
+  printf 'GRUB_SERIAL=1\nGRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200"\n' >> $TARGET/etc/default/grub
+  SVCS="$SVCS getty-ttyS0"
+fi
+for s in $SVCS; do if [ -d $TARGET/etc/sv/$s ]; then ln -sfn /etc/sv/$s $TARGET/var/service/$s; fi; done
+if [ -n "${VALENCE_WISHLIST:-}" ]; then
+  say "Applying the wish list"
+  mkdir -p $TARGET/etc/valence; cp "$VALENCE_WISHLIST" $TARGET/etc/valence/wishlist.txt
+  # a wish that cannot be had leaves a system that works: say so and go on
+  valence-wish --root $TARGET "$VALENCE_WISHLIST" || printf '   %sThe wish list was not applied completely (above).%s After the first start: sudo valence-wish /etc/valence/wishlist.txt\n' "$B" "$R"
+fi
+
+if [ $MODE = alongside ]; then
+  # its own folder on the shared EFI partition and an entry in the firmware's boot menu (efibootmgr, through
+  # efivarfs); the BIOS boot code and the fallback EFI/BOOT loader belong to the other system and stay untouched
+  say "Installing GRUB next to the other systems"
+  mountpoint -q $TARGET/sys/firmware/efi/efivars || mount -t efivarfs efivarfs $TARGET/sys/firmware/efi/efivars
+  chroot $TARGET grub-install --target=$EFI_TARGET --efi-directory=/boot/efi --boot-directory=/boot --bootloader-id=valence 2>&1 \
+    | grep -v '^Installing for' || true
+  [ -n "$(ls $TARGET/boot/efi/EFI/valence/*.efi 2>/dev/null)" ] || die "UEFI GRUB was not installed"
+  chroot $TARGET efibootmgr 2>/dev/null | grep -q -i 'valence' || echo "   (the firmware boot menu has no Valence entry: pick Valence's EFI file in the firmware setup)"
+  umount $TARGET/sys/firmware/efi/efivars 2>/dev/null || true
+else
+  say "Installing GRUB for BIOS and UEFI"
+  chroot $TARGET grub-install --target=i386-pc --boot-directory=/boot "$DISK" 2>&1 | grep -v '^Installing for' || true
+  chroot $TARGET grub-install --target=$EFI_TARGET --efi-directory=/boot --boot-directory=/boot --removable --no-nvram 2>&1 | grep -v '^Installing for' || true
+  [ -f $TARGET/boot/EFI/BOOT/$EFI_FILE ] || die "UEFI GRUB was not installed"
+  [ -f $TARGET/boot/grub/i386-pc/core.img ] || die "BIOS GRUB was not installed"
+fi
+if [ $ENCRYPT = y ]; then
+  say "Building the unlock initramfs"
+  mkdir -p $TARGET/etc/valence; : > $TARGET/etc/valence/encrypted-root
+  chroot $TARGET valence-mkinitramfs
+fi
+VALENCE_ROOT_DEV="$ROOTDEV" VALENCE_BOOT_DEV="$BOOTP" chroot $TARGET valence-update-grub
+
+say "Finishing"
+sync
+for d in dev proc sys; do umount $TARGET/$d; done
+[ $MODE = alongside ] && umount $TARGET/boot/efi
+umount $TARGET/boot; umount $TARGET/swap $TARGET/var/log $TARGET/home; umount $TARGET
+[ $ENCRYPT = y ] && cryptsetup close valenceroot
+cat <<EOF
+
+${P}  Valence is installed on $DISK.${R}
+  Remove the install media and run ${B}reboot${R}.
+
+EOF

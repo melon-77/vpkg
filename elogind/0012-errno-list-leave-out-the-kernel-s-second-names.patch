@@ -1,0 +1,14 @@
+Linux 6.x gave two errno values second names: EFSBADCRC is EBADMSG and EFSCORRUPTED is EUCLEAN. glibc's
+<errno.h> takes its list from the kernel's headers, so both show up here, twice in the errno-to-name table
+("initialized field overwritten", an error with -Werror=override-init). Leave them out, as ECANCELLED and
+EREFUSED already are. (musl has a list of its own without them, which is why Melon's build never saw this.)
+
+--- a/src/basic/generate-errno-list.sh	2026-11-19 16:22:49.749420991 -0800
++++ b/src/basic/generate-errno-list.sh	2026-11-19 16:22:49.752419992 -0800
+@@ -7,5 +7,5 @@
+ # ECANCELED and ECONNREFUSED, respectively. Let's drop them.
+ 
+ ${1:?} -dM -include errno.h - </dev/null | \
+-       grep -Ev '^#define[[:space:]]+(ECANCELLED|EREFUSED)' | \
++       grep -Ev '^#define[[:space:]]+(ECANCELLED|EREFUSED|EFSBADCRC|EFSCORRUPTED)' | \
+        awk '/^#define[ \t]+E[^ _]+[ \t]+/ { print $2; }'

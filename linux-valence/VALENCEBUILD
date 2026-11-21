@@ -1,0 +1,39 @@
+pkgname=linux-valence
+pkgver=7.0.0
+pkgrel=6
+pkgdesc="Linux kernel for Valence (generic x86_64 flavour)"
+license=GPL-2.0-only
+url=https://kernel.org
+source=(linux-7.0.tar.gz)
+builddir=$srcdir/linux-7.0
+depends=(linux-firmware-amdgpu kmod)
+options=('!strip')
+_kmake(){ env -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR -u CFLAGS -u CXXFLAGS -u LDFLAGS -u CC -u CXX -u LD -u AR -u NM -u STRIP -u OBJCOPY -u READELF -u OBJDUMP -u AS -u RANLIB make ARCH=$KARCH CROSS_COMPILE=$TARGET- HOSTCC=gcc KBUILD_BUILD_USER=valence KBUILD_BUILD_HOST=valence "$@"; }
+build(){
+  _kmake ${KARCH}_defconfig
+  scripts/kconfig/merge_config.sh -m .config $startdir/config-valence $([ $VALENCE_ARCH = x86 ] && echo $startdir/config-valence-x86)
+  _kmake olddefconfig
+  # every option the fragments ask for must survive olddefconfig: an unmet dependency drops one silently
+  # (that is how the touchpad's I2C controller driver went missing)
+  local bad; bad=$(cat $startdir/config-valence $([ $VALENCE_ARCH = x86 ] && echo $startdir/config-valence-x86) |
+    grep -E '^(CONFIG_[A-Za-z0-9_]+=|# CONFIG_[A-Za-z0-9_]+ is not set)' | while read -r l; do
+      case $l in "# "*) o=${l#\# }; o=${o%% *}; want=n ;; *) o=${l%%=*}; want=${l#*=} ;; esac
+      got=$(grep -m1 "^$o=" .config || true); got=${got#*=}; [ -n "$got" ] || got=n
+      [ "$got" = "$want" ] || echo "  $o: asked $want, got $got"
+    done)
+  # (the paused 32-bit build also merges the 64-bit fragment, where some options can't apply: warn only there)
+  [ -z "$bad" ] || { echo "config-valence options that did not survive olddefconfig (missing dependencies?):"; echo "$bad"
+                     [ $VALENCE_ARCH = x86 ] || return 1; }
+  _kmake -j$JOBS bzImage modules 2>&1 | grep -E 'error|Error' | head -20 || true
+  [ -f arch/x86/boot/bzImage ]
+}
+package(){
+  kver=$(_kmake -s kernelrelease)
+  install -Dm644 arch/x86/boot/bzImage $pkgdir/boot/vmlinuz-valence
+  install -Dm644 .config $pkgdir/boot/config-valence
+  install -Dm644 System.map $pkgdir/boot/System.map-valence
+  _kmake INSTALL_MOD_PATH=$pkgdir INSTALL_MOD_STRIP=1 DEPMOD=/bin/true modules_install
+  mkdir -p $pkgdir/usr/lib; mv $pkgdir/lib/modules $pkgdir/usr/lib/modules; rm -rf $pkgdir/lib
+  rm -f $pkgdir/usr/lib/modules/$kver/build
+  echo $kver > $pkgdir/usr/lib/modules/$kver/valence-kver
+}

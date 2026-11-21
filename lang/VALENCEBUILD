@@ -1,0 +1,10 @@
+pkgname=lang
+pkgver=1
+pkgrel=0
+pkgdesc="Translations for everything installed: every package's -lang part, now and for whatever is installed later"
+license=MIT
+# Nothing of its own. The builder gives every <pkg>-lang "install-if: lang <pkg>=<version>", so with this package
+# installed apk adds the -lang part of each installed package, and removes them all again with it. A language also
+# needs its locale: glibc-locales and localedef (AGENTS.md, the libc row).
+builddir=$srcdir
+package(){ :; }

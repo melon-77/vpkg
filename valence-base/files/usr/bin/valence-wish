@@ -1,0 +1,209 @@
+#!/bin/sh
+# valence-wish: apply a wish list, a file that says what this system should have (ROADMAP.md, phase 8).
+#
+#   # anything after a # is a comment
+#   packages = nano, htop, firefox        packages from Valence's repository, or apps from Flathub
+#   services = sshd, cupsd                 services to switch on (they start at once)
+#   hostname = workbench                   the computer's name
+#   user.jcole.groups = dialout, kvm       groups a user should be in
+#
+# It adds what the file lists and the system does not have yet, and leaves everything else alone: nothing is
+# removed because the file does not mention it, and applying the same file again changes nothing. A snapshot is
+# taken first, so "valence-snapshot rollback" takes everything the file did back in one step.
+#
+#   valence-wish FILE             apply it to this system
+#   valence-wish -n FILE          say what it would change, and change nothing
+#   valence-wish --root DIR FILE  apply it to the system mounted at DIR (the installers: no snapshot; Flathub apps
+#                                 are installed at the first login, when there is a network)
+#   valence-wish --find [--exclude DISK]
+#                                 print where a valence-wishlist.txt is: on a USB stick or another drive (at the top
+#                                 of a partition: FAT, exFAT, NTFS, ext4, Btrfs, XFS), leaving DISK out
+set -eu
+PATH=/usr/bin:/usr/sbin:/bin:/sbin
+NAME=valence-wishlist.txt
+B=$(printf '\033[1m') R=$(printf '\033[0m')
+die(){ echo "valence-wish: $*" >&2; exit 1; }
+say(){ echo "valence-wish: $*"; }
+
+# ---------- --find: a wish list on a stick or another drive ----------
+find_wish(){ excl=${1:-} seen=
+  for f in /media/valence/valence/$NAME /media/*/$NAME /media/*/*/$NAME /run/media/*/*/$NAME /mnt/*/$NAME; do
+    [ -f "$f" ] && { echo "$f"; return 0; }
+  done
+  [ "$(id -u)" = 0 ] || return 1
+  mkdir -p /run/valence/wish-scan
+  for dev in $(blkid -o device 2>/dev/null | sort); do
+    case $dev in /dev/loop*|/dev/zram*|/dev/sr*|/dev/mapper/*|/dev/dm-*) continue ;; esac
+    [ -n "$excl" ] && case $dev in "$excl"*) continue ;; esac
+    case $(blkid -s TYPE -o value "$dev" 2>/dev/null) in vfat|exfat|ntfs|ntfs3|ext2|ext3|ext4|btrfs|xfs) ;; *) continue ;; esac
+    mp=$(awk -v d="$dev" '$1 == d {print $2; exit}' /proc/mounts)
+    if [ -n "$mp" ]; then
+      [ -f "$mp/$NAME" ] && { echo "$mp/$NAME"; return 0; }
+      continue
+    fi
+    mount -o ro "$dev" /run/valence/wish-scan 2>/dev/null || continue
+    if [ -f /run/valence/wish-scan/$NAME ]; then
+      cp /run/valence/wish-scan/$NAME /run/valence/$NAME; umount /run/valence/wish-scan
+      echo /run/valence/$NAME; return 0
+    fi
+    umount /run/valence/wish-scan
+  done
+  return 1
+}
+
+DRY= ROOT= FIND= EXCL= CHECK=
+while [ $# -gt 0 ]; do
+  case $1 in
+    -n|--dry-run) DRY=1; shift ;;
+    -c|--check) CHECK=1; shift ;;   # only read the file: is it a wish list? (the installers, before partitioning)
+    --root) ROOT=${2:?--root needs a directory}; shift 2 ;;
+    --find) FIND=1; shift ;;
+    --exclude) EXCL=${2:?--exclude needs a disk}; shift 2 ;;
+    -h|--help) awk 'NR > 1 && /^#/ {sub(/^# ?/, ""); print; next} NR > 1 {exit}' "$0"; exit 0 ;;
+    -*) die "unknown option $1 (valence-wish --help)" ;;
+    *) break ;;
+  esac
+done
+if [ -n "$FIND" ]; then find_wish "$EXCL"; exit; fi
+[ $# = 1 ] || die "usage: valence-wish [-n] [--root DIR] FILE   (valence-wish --help)"
+FILE=$1
+[ -f "$FILE" ] || die "$FILE: no such file"
+case $FILE in /*) ;; *) FILE=$(pwd)/$FILE ;; esac
+if [ -z "$DRY$CHECK" ] && [ -z "$ROOT" ] && [ "$(id -u)" != 0 ]; then exec sudo "$0" "$FILE"; fi
+[ -z "$ROOT" ] || [ -d "$ROOT/etc" ] || die "$ROOT is not a system (no $ROOT/etc)"
+
+# ---------- reading the file: one "key<TAB>item" line per item ----------
+ITEMS=$(awk '
+  { sub(/\r$/, ""); sub(/#.*/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
+  $0 == "" { next }
+  !/=/ { printf "line %d: not \"key = value\": %s\n", NR, $0 > "/dev/stderr"; bad = 1; next }
+  { k = $0; sub(/[ \t]*=.*/, "", k); k = tolower(k); v = $0; sub(/^[^=]*=[ \t]*/, "", v)
+    if (k != "packages" && k != "services" && k != "hostname" && k !~ /^user\.[a-z_][a-z0-9_.-]*\.groups$/) {
+      printf "line %d: unknown key \"%s\" (known: packages, services, hostname, user.NAME.groups)\n", NR, k > "/dev/stderr"
+      bad = 1; next }
+    n = split(v, a, ",")
+    for (i = 1; i <= n; i++) { x = a[i]; gsub(/^[ \t]+|[ \t]+$/, "", x); if (x != "") print k "\t" x }
+  }
+  END { exit bad }' "$FILE") || die "$FILE is not a wish list (above)"
+items(){ printf '%s\n' "$ITEMS" | awk -F'\t' -v k="$1" '$1 == k {print $2}'; }
+PKGS=$(items packages | xargs) SVCS=$(items services | xargs) HOSTS=$(items hostname | xargs)
+GROUPS_=$(printf '%s\n' "$ITEMS" | awk -F'\t' '$1 ~ /^user\./ {u = $1; sub(/^user\./, "", u); sub(/\.groups$/, "", u); print u ":" $2}' | xargs)
+set -- $HOSTS; [ $# -le 1 ] || die "hostname: one name, not $#"
+HOST=${1:-}
+if [ -n "$HOST" ]; then
+  case $HOST in -*|*-|*[!A-Za-z0-9-]*) die "hostname: \"$HOST\" is not a host name (letters, digits and -, not at the ends)" ;; esac
+  [ ${#HOST} -le 63 ] || die "hostname: longer than 63 characters"
+fi
+if [ -n "$CHECK" ]; then say "$(basename "$FILE"): $(printf '%s\n' "$ITEMS" | grep -c .) wishes, readable"; exit 0; fi
+
+# ---------- what is there, and what the file adds ----------
+APK="apk${ROOT:+ --root $ROOT}"
+# the installers' copy of the ISO's packages, by its path from here (apk reads the target's repositories file as
+# paths of this system)
+[ -n "$ROOT" ] && [ -f "$ROOT/var/lib/valence/repo/$(apk --print-arch)/Packages.adb" ] &&
+  APK="$APK --repository $ROOT/var/lib/valence/repo/$(apk --print-arch)/Packages.adb"
+# the package indexes: fetch the repositories' lists (one that cannot be reached is left out, with apk's warning)
+$APK update >/dev/null 2>&1 || true
+flathub_id(){   # a name in "packages" that is no apk package: the Flathub app it means
+  case $1 in *.*.*) echo "$1"; return 0 ;; esac
+  case $(printf '%s' "$1" | tr 'A-Z' 'a-z') in
+    firefox) echo org.mozilla.firefox ;; thunderbird) echo org.mozilla.Thunderbird ;; chromium) echo org.chromium.Chromium ;;
+    vlc) echo org.videolan.VLC ;; steam) echo com.valvesoftware.Steam ;; discord) echo com.discordapp.Discord ;;
+    prismlauncher|prism-launcher) echo org.prismlauncher.PrismLauncher ;; spotify) echo com.spotify.Client ;;
+    gimp) echo org.gimp.GIMP ;; krita) echo org.kde.krita ;; inkscape) echo org.inkscape.Inkscape ;;
+    blender) echo org.blender.Blender ;; libreoffice) echo org.libreoffice.LibreOffice ;;
+    obs|obs-studio) echo com.obsproject.Studio ;; heroic) echo com.heroicgameslauncher.hgl ;;
+    lutris) echo net.lutris.Lutris ;; telegram) echo org.telegram.desktop ;; signal) echo org.signal.Signal ;;
+    *) [ -z "$ROOT" ] && command -v flatpak >/dev/null || return 1
+       # Flathub's own search, by the app's name; only an exact, single match counts
+       flatpak search --columns=application,name "$1" 2>/dev/null |
+         awk -F'\t' -v n="$1" 'tolower($2) == tolower(n) {print $1}' | sort -u | awk '{l = $0} END {if (NR == 1) print l; else exit 1}' ;;
+  esac
+}
+APKADD= FLATADD= MISSING=
+for p in $PKGS; do
+  if [ -n "$($APK search -x "$p" 2>/dev/null | head -n 1)" ]; then
+    $APK info -e "$p" >/dev/null 2>&1 || APKADD="$APKADD $p"
+  elif id=$(flathub_id "$p"); then
+    if [ -n "$ROOT" ]; then
+      grep -qxF "$id" "$ROOT/var/lib/valence/wish-flathub" 2>/dev/null || FLATADD="$FLATADD $id"
+    else
+      flatpak info --system "$id" >/dev/null 2>&1 || FLATADD="$FLATADD $id"
+    fi
+  else
+    MISSING="$MISSING $p"
+  fi
+done
+[ -z "$MISSING" ] || die "no package of this name in Valence's repository, and no Flathub app either:$MISSING
+  (apk search NAME looks in the repository; is the network up for the online repository?)"
+if [ -n "$FLATADD" ] && [ ! -x "$ROOT/usr/bin/flatpak" ]; then
+  die "apps from Flathub need flatpak, which the desktop system has:$FLATADD"
+fi
+# services, users and groups a package in this file brings are only there once it is installed
+SVCADD= GRPADD=
+for s in $SVCS; do
+  [ -L "$ROOT/var/service/$s" ] && continue
+  [ -d "$ROOT/etc/sv/$s" ] || [ -n "$APKADD" ] || die "no service \"$s\" (the services are the folders in /etc/sv)"
+  SVCADD="$SVCADD $s"
+done
+in_group(){ awk -F: -v g="$2" -v u="$1" '$1 == g { n = split($4, m, ","); for (i = 1; i <= n; i++) if (m[i] == u) f = 1 } END { exit !f }' "$ROOT/etc/group"; }
+for ug in $GROUPS_; do
+  u=${ug%%:*} g=${ug#*:}
+  grep -q "^$u:" "$ROOT/etc/passwd" || die "user.$u.groups: there is no user $u"
+  in_group "$u" "$g" && continue
+  grep -q "^$g:" "$ROOT/etc/group" || [ -n "$APKADD" ] || die "user.$u.groups: there is no group \"$g\""
+  GRPADD="$GRPADD $ug"
+done
+OLDHOST=$(cat "$ROOT/etc/hostname" 2>/dev/null || true)
+[ -n "$HOST" ] && [ "$HOST" = "$OLDHOST" ] && HOST=
+
+# ---------- the plan ----------
+if [ -z "$APKADD$FLATADD$SVCADD$GRPADD$HOST" ]; then
+  say "nothing to do: everything in $(basename "$FILE") is already so"; exit 0
+fi
+echo "${B}$(basename "$FILE")${R} adds:"
+[ -z "$APKADD" ]  || echo "  packages:          $(echo $APKADD)"
+[ -z "$FLATADD" ] || echo "  apps from Flathub: $(echo $FLATADD)$([ -n "$ROOT" ] && echo ' (at the first login)')"
+[ -z "$SVCADD" ]  || echo "  services:          $(echo $SVCADD)"
+for ug in $GRPADD; do echo "  user ${ug%%:*} in group ${ug#*:}"; done
+[ -z "$HOST" ]    || echo "  host name:         $HOST (was ${OLDHOST:-none})"
+[ -z "$DRY" ] || exit 0
+
+# ---------- doing it ----------
+if [ -z "$ROOT" ]; then
+  # one snapshot for the whole file, so one rollback takes it back (apk's own then has nothing to add)
+  VALENCE_SNAPSHOT_TEXT="valence-wish $(basename "$FILE")" valence-snapshot auto ||
+    die "no snapshot could be taken, so nothing was changed"
+fi
+if [ -n "$HOST" ]; then
+  echo "$HOST" > "$ROOT/etc/hostname"
+  if grep -q '^127\.0\.1\.1' "$ROOT/etc/hosts" 2>/dev/null; then sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$HOST/" "$ROOT/etc/hosts"
+  else printf '127.0.1.1\t%s\n' "$HOST" >> "$ROOT/etc/hosts"; fi
+  # the running system's name too, at once (the kernel's own setting: no hostname program needed)
+  [ -n "$ROOT" ] || echo "$HOST" > /proc/sys/kernel/hostname
+fi
+if [ -n "$APKADD" ]; then
+  $APK --no-commit-hooks add $APKADD || die "apk could not add the packages (above); nothing after them was done"
+fi
+for s in $SVCADD; do
+  [ -d "$ROOT/etc/sv/$s" ] || die "no service \"$s\" (the services are the folders in /etc/sv); the packages were added"
+done
+for ug in $GRPADD; do
+  grep -q "^${ug#*:}:" "$ROOT/etc/group" || die "user.${ug%%:*}.groups: there is no group \"${ug#*:}\"; the packages were added"
+done
+mkdir -p "$ROOT/var/service"
+for s in $SVCADD; do ln -sfn /etc/sv/$s "$ROOT/var/service/$s"; done
+for ug in $GRPADD; do
+  if [ -n "$ROOT" ]; then chroot "$ROOT" usermod -aG "${ug#*:}" "${ug%%:*}"; else usermod -aG "${ug#*:}" "${ug%%:*}"; fi
+done
+if [ -n "$FLATADD" ]; then
+  if [ -n "$ROOT" ]; then
+    # no network is promised while installing: valence-first-boot installs them at the first login
+    mkdir -p "$ROOT/var/lib/valence"; printf '%s\n' $FLATADD >> "$ROOT/var/lib/valence/wish-flathub"
+  else
+    valence-flathub install $FLATADD || die "Flathub could not install:$FLATADD (no internet?)"
+  fi
+fi
+[ -z "$SVCADD" ] || [ -n "$ROOT" ] || say "services switched on; they start within a few seconds"
+[ -z "$GRPADD" ] || [ -n "$ROOT" ] || say "new groups take effect at the user's next login"
+say "done"

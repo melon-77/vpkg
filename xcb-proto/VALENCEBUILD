@@ -1,0 +1,10 @@
+pkgname=xcb-proto
+pkgver=1.17.0
+pkgrel=1
+pkgdesc="xcb-proto (graphics stack)"
+license=custom
+source=(xcb-proto-1.17.0.tar.gz)
+builddir=$srcdir/xcb-proto-1.17.0
+build(){ [ -x configure ] || autoreconf -fi; ./configure $conf_flags ; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }
+options=('!strip')

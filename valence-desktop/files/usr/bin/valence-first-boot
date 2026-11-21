@@ -1,0 +1,106 @@
+#!/bin/sh
+# valence-first-boot: the first time someone logs in to Plasma, offer the apps Valence gets from Flathub
+# (Firefox, VLC, Steam, Prism Launcher), Valence's own developer tools (gcc, make, ...) and, on computers with an
+# NVIDIA card, a driver for it. Runs once per user;
+# "valence-first-boot --again" asks again.
+done_file=${XDG_CONFIG_HOME:-$HOME/.config}/valence-first-boot.done
+[ "$1" = --again ] && rm -f "$done_file"
+[ -f "$done_file" ] && exit 0
+[ "$(id -un)" = live ] && exit 0            # the live ISO session doesn't need this
+
+# started from autostart: open a terminal for the questions
+if [ "$1" != --in-terminal ]; then
+  exec konsole --hide-menubar -p tabtitle="Welcome to Valence" -e "$0" --in-terminal
+fi
+
+B=$(printf '\033[1m') O=$(printf '\033[38;5;255m') G=$(printf '\033[38;5;146m') R=$(printf '\033[0m')
+# apps from Flathub that a wish list asked for while installing (valence-wish --root): they need the network
+wish=/var/lib/valence/wish-flathub
+if [ -s $wish ]; then
+  echo; echo "  ${B}Installing the apps your wish list asked for, from Flathub:${R} $(xargs < $wish)"; echo
+  if valence-flathub install $(cat $wish); then
+    doas rm -f $wish; echo; echo "  ${G}Done.${R}"
+  else
+    echo; echo "  That didn't work (no internet?). ${B}valence-first-boot --again${R} tries again."
+  fi
+fi
+cat <<EOF
+
+  ${O}${B}Welcome to Valence.${R}
+
+  Valence keeps its own system small and gets big desktop apps from Flathub:
+
+    ${G}Firefox${R}          web browser                 org.mozilla.firefox
+    ${G}VLC${R}              video and music player      org.videolan.VLC
+    ${G}Steam${R}            games                       com.valvesoftware.Steam
+    ${G}Prism Launcher${R}   Minecraft                   org.prismlauncher.PrismLauncher
+
+  They need an internet connection and about 2 GB of disk.
+  (Discover, the app store in the launcher, can install them later too.)
+
+EOF
+apps=""
+ask(){ printf '  Install %s? [Y/n] ' "$1"; read -r a; case $a in n*|N*) return 1 ;; esac; return 0; }
+ask Firefox && apps="$apps org.mozilla.firefox"
+ask VLC && apps="$apps org.videolan.VLC"
+ask Steam && apps="$apps com.valvesoftware.Steam"
+ask "Prism Launcher" && apps="$apps org.prismlauncher.PrismLauncher"
+mkdir -p "$(dirname "$done_file")"
+if [ -n "$apps" ]; then
+  echo; echo "  ${B}Installing from Flathub (your password may be asked for)...${R}"; echo
+  if valence-flathub install $apps; then
+    : > "$done_file"
+    echo; echo "  ${G}Done.${R} The apps are in the launcher."
+  else
+    echo; echo "  That didn't work (no internet?). Run ${B}valence-first-boot --again${R} to retry."
+  fi
+else
+  : > "$done_file"
+fi
+
+# developer tools come from Valence's own repository (not Flathub), and most people don't need them: default no
+devtools="gcc g++ binutils make pkgconf patch"
+if ! apk info -e gcc >/dev/null 2>&1; then
+  echo
+  printf '  Install the developer tools (C/C++ compiler, make, pkg-config, patch; about 300 MB)? [y/N] '
+  read -r a
+  case $a in
+    y*|Y*)
+      echo; echo "  ${B}Installing from Valence's repository (your password may be asked for)...${R}"; echo
+      if doas apk add $devtools; then
+        echo; echo "  ${G}Done.${R} gcc, g++ and make are ready in the terminal."
+      else
+        echo; echo "  That didn't work (no internet?). Later: ${B}doas apk add $devtools${R}"
+      fi ;;
+  esac
+fi
+# an NVIDIA graphics card (PCI vendor 10de, a display device): offer a driver, both come from Valence's repository
+nvidia=""
+for d in ${VALENCE_SYSFS:-/sys}/bus/pci/devices/*; do
+  [ "$(cat "$d/vendor" 2>/dev/null)" = 0x10de ] && case $(cat "$d/class" 2>/dev/null) in 0x03*) nvidia=1 ;; esac
+done
+if [ -n "$nvidia" ] && ! apk info -e linux-firmware-nvidia >/dev/null 2>&1 && ! apk info -e nvidia-open >/dev/null 2>&1; then
+  cat <<EOF
+
+  ${O}${B}This computer has an NVIDIA graphics card.${R} Valence can drive it two ways (GTX 16/RTX 20 and newer):
+
+    ${G}1${R}  the open driver (nouveau + NVK, about 70 MB): the desktop and games both use the card
+    ${G}2${R}  NVIDIA's own driver (about 120 MB): faster games from Flathub (Steam gets NVIDIA's libraries
+       from Flathub); the desktop itself does not use it (Valence has no package of NVIDIA's own
+       libraries yet), so it keeps running on the laptop's other graphics chip, or in software on a PC
+       with only this card
+    ${G}3${R}  nothing for now (valence-first-boot --again asks later)
+
+EOF
+  printf '  Choice [1/2/3]: '; read -r a
+  case $a in 1) nvpkgs="linux-firmware-nvidia mesa-nvk" ;; 2) nvpkgs="nvidia-open" ;; *) nvpkgs="" ;; esac
+  if [ -n "$nvpkgs" ]; then
+    echo; echo "  ${B}Installing from Valence's repository (your password may be asked for)...${R}"; echo
+    if doas apk add $nvpkgs; then
+      echo; echo "  ${G}Done.${R} Restart Valence to use the new driver."
+    else
+      echo; echo "  That didn't work (no internet?). Later: ${B}doas apk add $nvpkgs${R}"
+    fi
+  fi
+fi
+echo; printf '  Press Enter to close. '; read -r _

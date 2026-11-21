@@ -1,0 +1,47 @@
+pkgname=open-vm-tools
+pkgver=13.0.10
+pkgrel=4
+pkgdesc="VMware guest tools: screen auto-resize (resolutionKMS), time sync, clean shutdown, shared folders (vmhgfs-fuse)"
+license=LGPL-2.1-or-later
+url=https://github.com/vmware/open-vm-tools
+source=(open-vm-tools-13.0.10.tar.xz)
+builddir=$srcdir/open-vm-tools-stable-13.0.10
+# libxcrypt-dev: configure stops without crypt() (found only by chance while every build shared one sysroot)
+makedepends=(glib-dev libtirpc-dev fuse3-dev openssl-dev libdrm-dev eudev-dev libxcrypt-dev linux-headers)
+# The musl patches come from Alpine's open-vm-tools package (aports, community/open-vm-tools).
+# No X11 desktop helper (vmware-user): the Plasma session is Wayland, where resizing goes through
+# vmwgfx and vmtoolsd's resolutionKMS plugin.
+prepare(){ cd open-vm-tools; autoreconf -fi >/dev/null 2>&1
+  # GLib makes g_free a macro when the C library has C23's free_sized (glibc 2.43 and newer), and the macro may call
+  # g_free_sized instead. glib_stubs.c stands in for GLib in a library that is linked without it: it has to define
+  # the function itself (in parentheses, which keeps the macro away) and the sized one as well.
+  sed -i 's/^void g_free(void \*p) { free(p); }$/void (g_free)(void *p) { free(p); }\nvoid g_free_sized(void *p, size_t s) { free(p); }/' lib/rpcChannel/glib_stubs.c
+  grep -q '^void (g_free)' lib/rpcChannel/glib_stubs.c; }
+build(){
+  cd open-vm-tools
+  export CUSTOM_PROCPS_NAME=procps CFLAGS="$CFLAGS -Wno-unused-but-set-variable -D_GNU_SOURCE" CXXFLAGS="$CXXFLAGS -std=gnu++11"
+  ./configure $conf_flags --with-udev-rules-dir=/usr/lib/udev/rules.d --without-x --without-dnet --without-xerces \
+    --without-icu --without-kernel-modules --without-pam --without-xmlsec1 --disable-vgauth --disable-deploypkg \
+    --disable-containerinfo --disable-servicediscovery --disable-salt-minion --disable-libappmonitor --disable-docs \
+    --disable-tests --enable-resolutionkms --with-fuse=fuse3 --with-tirpc --disable-werror --disable-glibc-check
+  make -j$JOBS; }
+package(){
+  make -C open-vm-tools DESTDIR=$pkgdir install
+  rm -rf $pkgdir/etc/pam.d $pkgdir/usr/lib/systemd
+  local conf=$pkgdir/etc/vmware-tools share=$pkgdir/usr/share/open-vm-tools
+  [ -f $conf/tools.conf.example ] && mv $conf/tools.conf.example $conf/tools.conf
+  mkdir -p $share
+  [ -f $conf/statechange.subr ] && mv $conf/statechange.subr $share/
+  [ -f $conf/poweroff-vm-default ] && cp $conf/poweroff-vm-default $share/statechange.sh
+  for f in $conf/*-vm-default; do [ -f "$f" ] && { rm "$f"; ln -s ../../usr/share/open-vm-tools/statechange.sh "$f"; }; done
+  rm -f $conf/scripts/vmware/network
+  mkdir -p $pkgdir/var/log/vmware $pkgdir/etc/sv/vmtoolsd
+  cat > $pkgdir/etc/sv/vmtoolsd/run <<'RUN'
+#!/bin/sh
+exec 2>&1
+# only in VMware guests; elsewhere the service switches itself off
+vmware-checkvm >/dev/null 2>&1 || { sv down "$PWD" >/dev/null 2>&1; exit 0; }
+modprobe -q vmw_vmci 2>/dev/null; modprobe -q vmw_vsock_vmci_transport 2>/dev/null
+exec vmtoolsd
+RUN
+  chmod 755 $pkgdir/etc/sv/vmtoolsd/run; }

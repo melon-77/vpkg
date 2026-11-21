@@ -1,0 +1,25 @@
+pkgname=iproute2
+pkgver=7.3.0
+pkgrel=1
+pkgdesc="Network configuration tools: ip, ss, bridge, tc"
+license=GPL-2.0-or-later
+url=https://wiki.linuxfoundation.org/networking/iproute2
+source=(iproute2-7.3.0.tar.xz)
+makedepends=(libmnl-dev)
+# Its configure is its own script, not autoconf: it asks pkg-config and the compiler what is there and writes
+# config.mk. HOSTCC builds the one helper that runs during the build (netem's table maker).
+build(){
+  ./configure --prefix=/usr --libdir=/usr/lib --libbpf_force off
+  # config.mk is where its findings land, and it has no switches for most of what it looks for: whatever other
+  # recipes left in the sysroot gets linked. libtirpc is there when open-vm-tools was built first, and ss would use
+  # it only to print RPC service names (ss -r): take it out. Anything else it finds stops the build, so the choice
+  # (a real makedepends, or out) is made here and not by build order.
+  sed -i '/HAVE_RPC/d; /tirpc/d' config.mk
+  if grep -E 'HAVE_(ELF|CAP|LIBCAP|SELINUX|BERKELEY_DB|LIBBSD)|TC_CONFIG_(XT|ATM|IPSET)\b' config.mk; then
+    echo "iproute2: configure found a library this recipe does not list (the lines above)"; return 1; fi
+  make -j$JOBS CC="$CC" AR="$AR" HOSTCC=gcc SBINDIR=/usr/bin CCOPTS="$CFLAGS"
+}
+package(){
+  make CC="$CC" AR="$AR" HOSTCC=gcc SBINDIR=/usr/bin CCOPTS="$CFLAGS" DESTDIR=$pkgdir install
+  rm -rf $pkgdir/usr/share/bash-completion $pkgdir/usr/include
+}

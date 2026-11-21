@@ -1,0 +1,11 @@
+{
+    "KPlugin": {
+        "Authors": [ { "Name": "Valence" } ],
+        "Description": "Valence's Plasma style",
+        "Id": "valence",
+        "License": "LGPL-2.0-or-later",
+        "Name": "Valence",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

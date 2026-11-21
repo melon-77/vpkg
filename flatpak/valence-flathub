@@ -1,0 +1,10 @@
+#!/bin/sh
+# valence-flathub: make sure the Flathub app store is configured (system-wide), then optionally install apps.
+#   valence-flathub                 add Flathub if it's missing
+#   valence-flathub install APP...  add Flathub if needed, then install the apps (e.g. org.mozilla.firefox)
+set -e
+if ! flatpak remotes --system --columns=name 2>/dev/null | grep -qx flathub; then
+  echo "Adding Flathub..."
+  flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+fi
+if [ "$1" = install ]; then shift; [ $# -gt 0 ] && exec flatpak install --system -y flathub "$@"; fi

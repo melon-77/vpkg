@@ -1,0 +1,11 @@
+pkgname=linux-headers
+pkgver=7.0
+pkgdesc="Linux kernel userspace API headers"
+license=GPL-2.0-only
+url=https://kernel.org
+source=(linux-7.0.tar.gz)
+builddir=$srcdir/linux-7.0
+# options=(bootstrap): part of what every other build stands on (BUILD_BASE in scripts/valence-build-recipe), so it is
+# built before that exists as packages, in the sysroot as scripts/toolchain.sh left it
+options=(bootstrap)
+package(){ make ARCH=$KARCH INSTALL_HDR_PATH=$pkgdir/usr headers_install; }

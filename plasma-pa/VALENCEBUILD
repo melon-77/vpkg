@@ -1,0 +1,11 @@
+pkgname=plasma-pa
+pkgver=6.6.4
+pkgrel=2
+pkgdesc="plasma-pa"
+license="LGPL-2.1-or-later OR GPL-2.0-or-later (see sources)"
+source=(plasma-pa-6.6.4.tar.xz)
+builddir=$srcdir/plasma-pa-6.6.4
+makedepends=(extra-cmake-modules glib-dev kf6-kcmutils-dev kf6-kconfig-dev kf6-kcoreaddons-dev kf6-kdbusaddons-dev kf6-kdeclarative-dev kf6-kglobalaccel-dev kf6-ki18n-dev kf6-kirigami-dev kf6-kitemmodels-dev kf6-kpackage-dev kf6-kstatusnotifieritem-dev kf6-ksvg-dev kirigami-addons-dev libcanberra-dev libplasma-dev pulseaudio-dev pulseaudio-qt-dev qt6-qtbase-dev qt6-qtdeclarative-dev)
+subpackages=(plasma-pa-dev)
+build(){ cmake_setup -B build -DQT_HOST_PATH=$M/hosttools/qt6 -DQT_HOST_PATH_CMAKE_DIR=$M/hosttools/qt6/lib/cmake -DBUILD_QCH=OFF -DBUILD_PYTHON_BINDINGS=OFF -DKDE_INSTALL_QTPLUGINDIR=lib/qt6/plugins -DKDE_INSTALL_QMLDIR=lib/qt6/qml -DKDE_INSTALL_LIBEXECDIR=libexec -DKF_IGNORE_PLATFORM_CHECK=ON -DBUILD_WITH_QT6=ON -DQT_MAJOR_VERSION=6 -DBUILD_DOC=OFF; ninja -C build -j$JOBS; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

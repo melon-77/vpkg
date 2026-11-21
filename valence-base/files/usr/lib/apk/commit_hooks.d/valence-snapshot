@@ -1,0 +1,8 @@
+#!/bin/sh
+# apk runs this before it changes the installed packages ("pre-commit") and after ("post-commit"): take a snapshot
+# of the system first, so the change can be undone (valence-snapshot rollback, or the boot menu's "Valence
+# snapshots"). If no snapshot can be taken, apk stops
+# before changing anything; apk --no-commit-hooks goes on without one. AUTO=no in /etc/valence/snapshot.conf
+# switches the snapshots off.
+[ "$1" = pre-commit ] || exit 0
+exec /usr/bin/valence-snapshot auto

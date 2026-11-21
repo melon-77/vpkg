@@ -1,0 +1,9 @@
+pkgname=libmnl
+pkgver=1.0.5
+pkgdesc="Small library for talking to the kernel over netlink (iproute2 uses it)"
+license=LGPL-2.1-or-later
+url=https://www.netfilter.org/projects/libmnl/
+source=(libmnl-1.0.5.tar.bz2)
+subpackages=(libmnl-dev)
+build(){ ./configure $conf_flags --disable-static; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

@@ -1,0 +1,12 @@
+[KDE]
+LookAndFeelPackage=org.valence.desktop
+widgetStyle=Breeze
+
+[General]
+ColorScheme=ValenceDark
+AccentColor=112,122,156
+fixed=Hack,10,-1,5,50,0,0,0,0,0
+font=Noto Sans,10,-1,5,50,0,0,0,0,0
+
+[Icons]
+Theme=breeze-dark

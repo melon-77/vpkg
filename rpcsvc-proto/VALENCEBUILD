@@ -1,0 +1,13 @@
+pkgname=rpcsvc-proto
+pkgver=1.4.4
+pkgrel=1
+pkgdesc="rpcgen, the Sun RPC protocol compiler (open-vm-tools' build runs it), and the rpcsvc protocol definitions"
+license=BSD-3-Clause
+url=https://github.com/thkukuk/rpcsvc-proto
+source=(rpcsvc-proto-1.4.4.tar.xz)
+subpackages=(rpcsvc-proto-dev)
+# The build makes rpcsvc/'s headers with the rpcgen it just built, which options=(runhere) lets it run on the build
+# machine (rule 18). rpcgen runs the C preprocessor (/lib/cpp, else cpp from PATH: gcc's on Valence). No translations ship.
+options=(runhere)
+build(){ ./configure $conf_flags --disable-nls; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

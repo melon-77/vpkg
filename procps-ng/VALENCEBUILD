@@ -1,0 +1,16 @@
+pkgname=procps-ng
+pkgver=4.0.7
+pkgrel=1
+pkgdesc="Process tools: ps, top, free, pgrep, pkill, kill, uptime, watch, sysctl"
+license="GPL-2.0-or-later AND LGPL-2.1-or-later"
+url=https://gitlab.com/procps-ng/procps
+source=(procps-ng-4.0.7.tar.xz)
+makedepends=(ncurses-dev)
+subpackages=(libproc2-dev libproc2)
+depends=(libproc2)
+pkgdesc_libproc2="procps-ng's process library (lxqt-session reads the process table with it)"
+pkgdesc_libproc2_dev="procps-ng's process library (development files)"
+build(){ ./configure $conf_flags --disable-static --disable-nls --without-systemd --enable-watch8bit; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }
+pkg_libproc2_dev(){ default_dev; }
+pkg_libproc2(){ amove 'usr/lib/libproc2.so.*'; }

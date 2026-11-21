@@ -1,0 +1,16 @@
+pkgname=libxcrypt
+pkgver=4.5.2
+pkgrel=1
+pkgdesc="Password hashing library: crypt(), which glibc no longer includes"
+license=LGPL-2.1-or-later
+url=https://github.com/besser82/libxcrypt
+source=(libxcrypt-4.5.2.tar.xz)
+depends=(glibc)
+subpackages=(libxcrypt-dev)
+# libcrypt.so.2 only. Programs built long ago on other distributions ask for libcrypt.so.1 (--enable-obsolete-api=glibc
+# builds that one); it can become its own package when something needs it.
+build(){
+  ./configure $conf_flags --disable-static --enable-hashes=strong,glibc --enable-obsolete-api=no --disable-failure-tokens --disable-werror
+  make -j$JOBS
+}
+package(){ make DESTDIR=$pkgdir install; }

@@ -1,0 +1,46 @@
+pkgname=glibc
+pkgver=2.44
+pkgrel=1
+pkgdesc="The GNU C library"
+depends=(valence-layout)
+license=LGPL-2.1-or-later
+url=https://www.gnu.org/software/libc/
+source=(glibc-2.44.tar.xz)
+subpackages=(glibc-dev glibc-locales)
+makedepends=(linux-headers)   # --with-headers: the kernel's headers in the sysroot
+depends_glibc_dev="glibc linux-headers"
+depends_glibc_locales="glibc"
+pkgdesc_glibc_dev="The GNU C library: headers, start files and static libraries"
+pkgdesc_glibc_locales="The GNU C library: locale and character map sources for localedef, and its own message translations"
+# The same settings as scripts/toolchain.sh, which built the copy the cross compiler links against. Everything goes
+# to /usr/lib, the loader too: /lib64 is a link to it (valence-layout), and that is the name programs ask for.
+# glibc is built with its own flags, not the distribution's CFLAGS and LDFLAGS (it refuses some and needs -O2);
+# its hardening comes from the configure switches.
+_env(){ env -u CFLAGS -u CXXFLAGS -u LDFLAGS "$@"; }
+build(){
+  mkdir -p build; cd build
+  printf 'slibdir=/usr/lib\nrtlddir=/usr/lib\nsbindir=/usr/bin\nrootsbindir=/usr/bin\n' > configparms
+  _env ../configure --prefix=/usr --host=$CHOST --build=$CBUILD --libdir=/usr/lib --libexecdir=/usr/lib \
+    --with-headers=$SYSROOT/usr/include --enable-kernel=5.10 --enable-bind-now --enable-stack-protector=strong \
+    --disable-werror --disable-nscd --disable-profile MAKEINFO=: CFLAGS="-O2"
+  # "lib" first, then the rest: a plain parallel "make all" can start making linkobj/libc_pic.a in two directories
+  # at once, and they delete each other's files (scripts/toolchain.sh has the details)
+  _env make -j$JOBS lib
+  _env make -j$JOBS
+}
+package(){
+  _env make -C build install_root=$pkgdir install
+  rm -rf $pkgdir/var/db
+  # name lookups: local files, then DNS for host names. The C.UTF-8 locale is built in; others are made with
+  # localedef from glibc-locales.
+  install -Dm644 $startdir/nsswitch.conf $pkgdir/etc/nsswitch.conf
+  install -Dm644 $startdir/ld.so.conf $pkgdir/etc/ld.so.conf
+  mkdir -p $pkgdir/etc/ld.so.conf.d
+}
+# options=(bootstrap): part of what every other build stands on (BUILD_BASE in scripts/valence-build-recipe), so it is
+# built before that exists as packages, in the sysroot as scripts/toolchain.sh left it
+options=(keepdirs bootstrap)
+# the linker scripts and development links (libc.so, libm.so, ...) are the unversioned *.so files directly in usr/lib;
+# the libraries programs load at run time all carry a version (libc.so.6) or live in usr/lib/gconv
+pkg_dev(){ amove usr/include 'usr/lib/*.a' 'usr/lib/*.o' 'usr/lib/*.so'; }
+pkg_locales(){ amove usr/share/i18n usr/share/locale; }

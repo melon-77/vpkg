@@ -1,0 +1,10 @@
+pkgname=npth
+pkgver=1.8
+pkgrel=2
+pkgdesc="npth (graphics stack)"
+license=custom
+source=(npth-1.8.tar.bz2)
+builddir=$srcdir/npth-1.8
+subpackages=(npth-dev)
+build(){ [ -x configure ] || autoreconf -fi; ./configure $conf_flags --disable-static --enable-install-npth-config; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

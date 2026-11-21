@@ -1,0 +1,13 @@
+pkgname=grep
+pkgver=3.12
+pkgrel=1
+pkgdesc="GNU grep"
+license=GPL-3.0-or-later
+url=https://www.gnu.org/software/grep/
+source=(grep-3.12.tar.xz)
+makedepends=(pcre2-dev)
+# egrep and fgrep: GNU's are two-line scripts that print "egrep is obsolescent" on every run. Scripts written long
+# ago still call them, so they stay, without the warning.
+prepare(){ sed -i '/obsolescent/d' src/egrep.sh; ! grep -q obsolescent src/egrep.sh && grep -q '^exec ' src/egrep.sh; }
+build(){ ./configure $conf_flags --disable-nls; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

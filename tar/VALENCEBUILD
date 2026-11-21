@@ -1,0 +1,13 @@
+pkgname=tar
+pkgver=1.35
+pkgrel=1
+pkgdesc="GNU tar"
+license=GPL-3.0-or-later
+url=https://www.gnu.org/software/tar/
+source=(tar-1.35.tar.xz)
+makedepends=(acl-dev attr-dev)
+# It reads and writes compressed archives by running gzip, xz, zstd and bzip2. BusyBox's xz and bzip2 are enough
+# for reading when the real ones are not installed.
+# FORCE_UNSAFE_CONFIGURE: as in coreutils, configure stops when root runs it.
+build(){ FORCE_UNSAFE_CONFIGURE=1 ./configure $conf_flags --disable-nls --without-selinux; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

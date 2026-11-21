@@ -1,0 +1,25 @@
+pkgname=valence-base
+pkgver=0.1
+pkgrel=45
+pkgdesc="Valence base system: init scripts, services, configuration and tools"
+license=MIT
+# The GNU tools provide the commands (ROADMAP.md, "Decided"); BusyBox stays for /bin/sh, the initramfs, the small
+# daemons (getty, udhcpc, mdev, syslogd, klogd, crond, ntpd) and the commands nothing else here provides.
+# btrfs-progs: the root is Btrfs, and valence-snapshot (apk's snapshot before every change, rollback) is in this package.
+# libgcc: glibc loads libgcc_s.so.1 by name when a thread exits or is cancelled (rule 28), so no program's so:
+# dependencies ask for it. It used to be on the console system only because xfsprogs' libraries pulled it in.
+depends=(valence-layout glibc libgcc busybox bash runit apk-tools ncurses-terminfo-base util-linux opendoas
+  coreutils findutils grep sed tar gzip diffutils less procps-ng iproute2 shadow btrfs-progs)
+builddir=$srcdir
+options=(keepdirs)
+package(){
+  cp -a $startdir/files/. $pkgdir/
+  sed -i "s/@BUILD_ID@/$(date +%Y%m%d)/" $pkgdir/etc/os-release
+  chmod 640 $pkgdir/etc/shadow; chmod 755 $pkgdir/usr/bin/* $pkgdir/etc/runit/[123] $pkgdir/etc/runit/ctrlaltdel
+  chmod 755 $pkgdir/usr/lib/apk/commit_hooks.d/valence-snapshot $pkgdir/usr/libexec/valence/boot-snapshot
+  mkdir -p $pkgdir/var/service $pkgdir/var/lib $pkgdir/var/log $pkgdir/var/spool/cron/crontabs
+  ln -sf ../usr/lib/os-release $pkgdir/etc/os-release.lnk 2>/dev/null; rm -f $pkgdir/etc/os-release.lnk
+  mkdir -p $pkgdir/root; cat > $pkgdir/root/.bashrc <<'RC'
+[ -r /etc/bash/bashrc ] && . /etc/bash/bashrc
+RC
+}

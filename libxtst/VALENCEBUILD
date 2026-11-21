@@ -1,0 +1,11 @@
+pkgname=libxtst
+pkgver=1.2.5
+pkgrel=2
+pkgdesc="libxtst (graphics stack)"
+license=custom
+source=(libxtst-1.2.5.tar.gz)
+builddir=$srcdir/libXtst-1.2.5
+makedepends=(libxi-dev libx11-dev libxext-dev)
+subpackages=(libxtst-dev)
+build(){ [ -x configure ] || autoreconf -fi; ./configure $conf_flags --disable-static --disable-specs; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

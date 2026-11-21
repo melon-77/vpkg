@@ -1,0 +1,14 @@
+pkgname=bison
+pkgver=3.8.2
+pkgrel=2
+pkgdesc="GNU Bison: generates parsers from grammars"
+license=GPL-3.0-or-later
+url=https://www.gnu.org/software/bison/
+source=(bison-3.8.2.tar.xz)
+# gettext-dev: libtextstyle, for coloured diagnostics. Its prefix is given, or configure looks in the build machine's
+# /usr; --disable-rpath, or configure writes that prefix's library directory into bison as an RPATH.
+makedepends=(gettext-dev)
+depends=(m4)
+# bison runs m4 by the path configure found (the build machine's /usr/bin/m4, the same path as Valence's)
+build(){ M4=/usr/bin/m4 ./configure $conf_flags --disable-nls --disable-yacc --disable-rpath --with-libtextstyle-prefix=$SYSROOT/usr; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; rm -rf $pkgdir/usr/lib/liby.a; }
