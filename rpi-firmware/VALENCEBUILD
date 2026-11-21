@@ -1,0 +1,21 @@
+pkgname=rpi-firmware
+pkgver=1.20260915
+pkgrel=0
+pkgdesc="Raspberry Pi boot firmware: the files the Pi's GPU starts from (start*.elf, fixup*.dat) and the Pi 3's bootcode.bin"
+license="custom:Broadcom (LICENCE.broadcom: redistributable in binary form)"
+# the Raspberry Pi edition's (ROADMAP.md, phase 9): built for 64-bit ARM only
+arch=(aarch64)
+url=https://github.com/raspberrypi/firmware
+# the files from boot/ of github.com/raspberrypi/firmware at its tag 1.20260915 (commit 6f0881cba8be), downloaded
+# one by one (the repository's archive is gigabytes of prebuilt kernels)
+_files="bootcode.bin start.elf fixup.dat start_cd.elf fixup_cd.dat start4.elf fixup4.dat start4cd.elf fixup4cd.dat LICENCE.broadcom"
+source=(firmware/rpi-1.20260915-bootcode.bin firmware/rpi-1.20260915-start.elf firmware/rpi-1.20260915-fixup.dat
+        firmware/rpi-1.20260915-start_cd.elf firmware/rpi-1.20260915-fixup_cd.dat firmware/rpi-1.20260915-start4.elf
+        firmware/rpi-1.20260915-fixup4.dat firmware/rpi-1.20260915-start4cd.elf firmware/rpi-1.20260915-fixup4cd.dat
+        firmware/rpi-1.20260915-LICENCE.broadcom)
+options=('!strip')
+package(){
+  [ "$VALENCE_ARCH" = aarch64 ] || { echo "rpi-firmware is for the 64-bit ARM edition (VALENCE_ARCH=aarch64)"; return 1; }
+  for f in $_files; do install -Dm644 $srcdir/rpi-$pkgver-$f $pkgdir/boot/$f; done
+  install -Dm644 $srcdir/rpi-$pkgver-LICENCE.broadcom $pkgdir/usr/share/licenses/rpi-firmware/LICENCE.broadcom
+}

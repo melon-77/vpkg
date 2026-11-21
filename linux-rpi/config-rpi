@@ -1,0 +1,27 @@
+# Valence's additions to the Raspberry Pi Foundation's bcm2711_defconfig (recipes/linux-rpi)
+CONFIG_LOCALVERSION="-valence-rpi"
+# no initramfs (AGENTS.md rule 28): the root filesystem and the SD card's controllers are built in
+# (Pi 3: the SD host, Pi 4: the eMMC2 controller)
+CONFIG_BTRFS_FS=y
+CONFIG_BTRFS_FS_POSIX_ACL=y
+CONFIG_MMC=y
+CONFIG_MMC_BCM2835=y
+CONFIG_MMC_SDHCI=y
+CONFIG_MMC_SDHCI_PLTFM=y
+CONFIG_MMC_SDHCI_IPROC=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+# the configuration in /proc/config.gz, as on the x86 kernel
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y
+# the serial console on the GPIO pins (the mini UART and the PL011) from the start
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_8250_BCM2835AUX=y
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+# modules uncompressed, as on the PC kernel: the Foundation's configuration compresses them with xz, which Valence's
+# kmod does not read (it has zlib and zstd), so depmod skipped every module and none could be loaded
+# CONFIG_MODULE_COMPRESS is not set
+# swap in compressed RAM rather than on the SD card
+CONFIG_ZRAM=m

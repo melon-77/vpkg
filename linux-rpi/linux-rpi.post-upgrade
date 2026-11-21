@@ -1,0 +1,5 @@
+#!/bin/sh
+# the module lists of the new kernel (modules.dep, modules.alias): without them modprobe finds no driver by its
+# hardware alias, and mdevd loads none (the Pi 5's Ethernet, Wi-Fi, USB network adapters)
+for d in /usr/lib/modules/*; do [ -d "$d" ] && depmod -a "${d##*/}"; done
+exit 0

@@ -1,0 +1,55 @@
+pkgname=linux-rpi
+pkgver=6.18.60
+pkgrel=0
+pkgdesc="Linux kernel for the Raspberry Pi 3, 4, 400, 5 and Zero 2 W (the Raspberry Pi Foundation's tree, 64-bit)"
+license=GPL-2.0-only
+# the Raspberry Pi edition's (ROADMAP.md, phase 9): built for 64-bit ARM only
+arch=(aarch64)
+url=https://github.com/raspberrypi/linux
+# the tree at its tag stable_20261103 (Linux 6.18.60), GitHub's archive of the tag (commit 0b41724521c9)
+_tag=stable_20261103
+source=(linux-rpi-$_tag.tar.gz)
+builddir=$srcdir/linux-$_tag
+depends=(kmod rpi-firmware)
+options=('!strip')
+_kmake(){ env -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR -u CFLAGS -u CXXFLAGS -u LDFLAGS -u CC -u CXX -u LD -u AR -u NM -u STRIP -u OBJCOPY -u READELF -u OBJDUMP -u AS -u RANLIB make ARCH=$KARCH CROSS_COMPILE=$TARGET- HOSTCC=gcc KBUILD_BUILD_USER=valence KBUILD_BUILD_HOST=valence "$@"; }
+build(){
+  [ "$VALENCE_ARCH" = aarch64 ] || { echo "linux-rpi is the 64-bit ARM edition's kernel (VALENCE_ARCH=aarch64)"; return 1; }
+  # the Foundation's configuration for the BCM2711 (Pi 4) is also the one its 64-bit kernel for the Pi 3, the Zero 2 W
+  # and the Pi 5 uses (kernel8.img, 4K pages; the Foundation's kernel_2712.img for the Pi 5 alone has 16K pages);
+  # Valence's fragment on top
+  _kmake bcm2711_defconfig
+  scripts/kconfig/merge_config.sh -m .config $startdir/config-rpi
+  _kmake olddefconfig
+  # every option the fragment asks for must survive olddefconfig (as in linux-valence)
+  local bad; bad=$(grep -E '^(CONFIG_[A-Za-z0-9_]+=|# CONFIG_[A-Za-z0-9_]+ is not set)' $startdir/config-rpi | while read -r l; do
+      case $l in "# "*) o=${l#\# }; o=${o%% *}; want=n ;; *) o=${l%%=*}; want=${l#*=} ;; esac
+      got=$(grep -m1 "^$o=" .config || true); got=${got#*=}; [ -n "$got" ] || got=n
+      [ "$got" = "$want" ] || echo "  $o: asked $want, got $got"
+    done)
+  [ -z "$bad" ] || { echo "config-rpi options that did not survive olddefconfig:"; echo "$bad"; return 1; }
+  _kmake -j$JOBS Image modules dtbs 2>&1 | grep -E 'error|Error' | head -20 || true
+  [ -f arch/arm64/boot/Image ]
+}
+package(){
+  kver=$(_kmake -s kernelrelease)
+  # /boot is the SD card's FAT partition, where the Pi's firmware looks: the kernel under the name it loads for a
+  # 64-bit system, the boards' device trees, and the overlays config.txt can name
+  install -Dm644 arch/arm64/boot/Image $pkgdir/boot/kernel8.img
+  install -Dm644 .config $pkgdir/boot/config-valence
+  install -Dm644 System.map $pkgdir/boot/System.map-valence
+  for f in arch/arm64/boot/dts/broadcom/bcm2710-*.dtb arch/arm64/boot/dts/broadcom/bcm2711-*.dtb arch/arm64/boot/dts/broadcom/bcm2712-*.dtb \
+           arch/arm64/boot/dts/broadcom/bcm2837-*.dtb; do
+    [ -f "$f" ] && install -m644 "$f" $pkgdir/boot/
+  done
+  for f in bcm2710-rpi-3-b bcm2711-rpi-4-b bcm2712-rpi-5-b; do
+    [ -f $pkgdir/boot/$f.dtb ] || { echo "the device tree $f.dtb is missing"; return 1; }
+  done
+  install -d $pkgdir/boot/overlays
+  cp arch/arm64/boot/dts/overlays/*.dtbo $pkgdir/boot/overlays/
+  [ -f arch/arm64/boot/dts/overlays/README ] && install -m644 arch/arm64/boot/dts/overlays/README $pkgdir/boot/overlays/README
+  _kmake INSTALL_MOD_PATH=$pkgdir INSTALL_MOD_STRIP=1 DEPMOD=/bin/true modules_install
+  mkdir -p $pkgdir/usr/lib; mv $pkgdir/lib/modules $pkgdir/usr/lib/modules; rm -rf $pkgdir/lib
+  rm -f $pkgdir/usr/lib/modules/$kver/build
+  echo $kver > $pkgdir/usr/lib/modules/$kver/valence-kver
+}
