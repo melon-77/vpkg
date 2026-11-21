@@ -1,2 +1,7 @@
 #!/bin/sh
+# mdev in daemon mode loads the driver for every device that appears from now on (the MODALIAS rule in
+# /etc/mdev.conf). Stage 1 loaded drivers for what was there when it ran; a device found after that and before this
+# daemon listens (USB is still being searched: a USB network card, the Pi 3's own Ethernet) would get none. So load
+# the drivers for everything present once more, right before listening.
+find /sys/devices -name modalias -type f -exec cat {} + 2>/dev/null | sort -u | xargs -r modprobe -a -b -q 2>/dev/null
 exec mdev -d -f
