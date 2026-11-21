@@ -1,0 +1,16 @@
+pkgname=sdl2-compat
+pkgver=2.32.74
+pkgrel=0
+pkgdesc="SDL2 compatibility layer running on top of SDL3"
+license=Zlib
+url=https://github.com/libsdl-org/sdl2-compat
+source=(sdl2-compat-2.32.74.tar.gz)
+makedepends=(sdl3-dev libx11-dev)
+# sdl2-compat dlopen()s libSDL3.so.0 at run time, so it does not show up as an so: dependency.
+depends=(sdl3)
+provides=(sdl2=$pkgver)
+subpackages=(sdl2-compat-dev)
+provides_dev=(sdl2-dev=$pkgver)
+build(){ cmake_setup -B build -DSDL2COMPAT_TESTS=OFF -DSDL2COMPAT_STATIC=OFF -DSDL2COMPAT_WERROR=OFF -DSDL2COMPAT_INSTALL_CPACK=OFF
+  ninja -C build -j$JOBS; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

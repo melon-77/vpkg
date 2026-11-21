@@ -1,0 +1,16 @@
+pkgname=sdl2-image
+pkgver=2.8.12
+pkgrel=0
+pkgdesc="SDL2_image: loads PNG, JPEG, WebP, GIF, SVG and other images into SDL2 surfaces and textures"
+license=Zlib
+url=https://github.com/libsdl-org/SDL_image
+source=(SDL2_image-2.8.12.tar.gz)
+builddir=$srcdir/SDL2_image-2.8.12
+makedepends=(sdl2-compat-dev libpng-dev libjpeg-turbo-dev libwebp-dev zlib-dev)
+subpackages=(sdl2-image-dev)
+# Linked, not dlopen()ed, so the image libraries become so: dependencies. STRICT stops the build when one is missing.
+# No libavif, libtiff or libjxl in Valence yet.
+build(){ cmake_setup -B build -DSDL2IMAGE_VENDORED=OFF -DSDL2IMAGE_STRICT=ON -DSDL2IMAGE_DEPS_SHARED=OFF -DSDL2IMAGE_BACKEND_STB=OFF \
+  -DSDL2IMAGE_AVIF=OFF -DSDL2IMAGE_TIF=OFF -DSDL2IMAGE_JXL=OFF -DSDL2IMAGE_SAMPLES=OFF -DSDL2IMAGE_TESTS=OFF
+  ninja -C build -j$JOBS; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }
