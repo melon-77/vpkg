@@ -1,0 +1,106 @@
+# Firefox ESR 153.7.0esr (apk versions need digits, so 153.7.0 here).
+# First-pass native cross-compile recipe: requires clang-19, lld-19, nodejs, cbindgen, zip on the build host
+# (installed by scripts/host-setup.sh) and host Rust 1.98.1 (scripts/host-rust.sh).
+pkgname=firefox
+pkgver=153.7.0
+pkgrel=0
+pkgdesc="Mozilla Firefox web browser (ESR)"
+license=MPL-2.0
+url=https://www.mozilla.org/firefox/
+source=(firefox-153.7.0esr.source.tar.xz)
+builddir=$srcdir/firefox-153.7.0
+makedepends=(gtk3-dev glib-dev cairo-dev pango-dev gdk-pixbuf-dev at-spi2-core-dev
+  dbus-dev wayland-dev wayland-protocols libxkbcommon-dev libdrm-dev mesa-dev
+  libx11-dev libxext-dev libxrender-dev libxcomposite-dev libxdamage-dev libxfixes-dev
+  libxrandr-dev libxcursor-dev libxi-dev libxt-dev libxcb-dev
+  alsa-lib-dev pulseaudio-dev pipewire-dev zlib-dev libffi-dev fontconfig-dev freetype-dev
+  pixman-dev eudev-dev)
+# Runtime libraries Firefox dlopen()s (video decoding, Wayland/GL/Vulkan, PulseAudio/PipeWire)
+depends=(ffmpeg mesa pipewire)
+options=(rust)
+
+build(){
+  need_rust
+  local clang_cc=clang-19 clang_cxx=clang++-19
+  command -v "$clang_cc" >/dev/null 2>&1 || { clang_cc=clang; clang_cxx=clang++; }
+  local lld_flag=--enable-linker=lld
+  command -v lld-19 >/dev/null 2>&1 || command -v ld.lld >/dev/null 2>&1 || lld_flag=--enable-linker=bfd
+
+  # Wrapper scripts so mach/configure/bindgen pass Valence's target triple, sysroot, and GCC 15 runtime to host clang
+  mkdir -p "$WORK/ff-cc"
+  cat > "$WORK/ff-cc/cc" <<EOF
+#!/bin/sh
+exec $clang_cc --target=$TARGET --sysroot=$SYSROOT --gcc-toolchain=$TOOLS "\$@"
+EOF
+  cat > "$WORK/ff-cc/cxx" <<EOF
+#!/bin/sh
+exec $clang_cxx --target=$TARGET --sysroot=$SYSROOT --gcc-toolchain=$TOOLS "\$@"
+EOF
+  chmod 755 "$WORK/ff-cc/cc" "$WORK/ff-cc/cxx"
+
+  # Firefox's source tarball ships vendored Rust crates in third_party/rust, so cargo stays offline.
+  export MOZBUILD_STATE_PATH="$WORK/mozbuild"
+  export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=system
+  export CC="$WORK/ff-cc/cc"
+  export CXX="$WORK/ff-cc/cxx"
+  export HOST_CC="$clang_cc"
+  export HOST_CXX="$clang_cxx"
+  export AR="$TARGET-ar"
+  export RANLIB="$TARGET-ranlib"
+  export NM="$TARGET-nm"
+  export RUSTC="$M/hosttools/rust/bin/rustc"
+  export CARGO="$M/hosttools/rust/bin/cargo"
+  export BINDGEN_CFLAGS="--target=$TARGET --sysroot=$SYSROOT --gcc-toolchain=$TOOLS"
+  unset CFLAGS CXXFLAGS LDFLAGS
+
+  cat > .mozconfig <<EOF
+ac_add_options --enable-application=browser
+ac_add_options --enable-release
+ac_add_options --prefix=/usr
+ac_add_options --libdir=/usr/lib
+ac_add_options --host=x86_64-pc-linux-gnu
+ac_add_options --target=$TARGET
+ac_add_options --enable-default-toolkit=cairo-gtk3-x11-wayland
+ac_add_options --enable-alsa
+ac_add_options --enable-pulseaudio
+ac_add_options --with-system-zlib
+ac_add_options --with-system-ffi
+ac_add_options --without-wasm-sandboxed-libraries
+ac_add_options --disable-crashreporter
+ac_add_options --disable-updater
+ac_add_options --disable-tests
+ac_add_options --disable-debug
+ac_add_options --disable-debug-symbols
+ac_add_options --disable-elf-hack
+ac_add_options $lld_flag
+mk_add_options MOZ_MAKE_FLAGS="-j$JOBS"
+EOF
+
+  ./mach build
+}
+
+package(){
+  export MOZBUILD_STATE_PATH="$WORK/mozbuild"
+  export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=system
+  DESTDIR="$pkgdir" ./mach install
+
+  # Desktop entry and icons (default branding dir; adjust if official branding is enabled)
+  local bdir=browser/branding/unofficial
+  [ -d "$bdir" ] || bdir=browser/branding/official
+  for s in 16 32 48 64 128; do
+    [ -f "$bdir/default${s}.png" ] && \
+      install -Dm644 "$bdir/default${s}.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/firefox.png"
+  done
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/firefox.desktop" <<'EOF'
+[Desktop Entry]
+Name=Firefox
+Comment=Browse the World Wide Web
+Exec=/usr/bin/firefox %u
+Icon=firefox
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+EOF
+}

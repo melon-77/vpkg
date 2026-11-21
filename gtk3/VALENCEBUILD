@@ -1,0 +1,21 @@
+pkgname=gtk3
+pkgver=3.24.43
+pkgrel=0
+pkgdesc="GTK+ 3 graphical user interface toolkit (Wayland and X11)"
+license=LGPL-2.1-or-later
+url=https://www.gtk.org
+source=(gtk+-3.24.43.tar.xz)
+builddir=$srcdir/gtk+-3.24.43
+makedepends=(glib-dev cairo-dev pango-dev gdk-pixbuf-dev at-spi2-core-dev libepoxy-dev
+  wayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxext-dev libxrender-dev
+  libxi-dev libxrandr-dev libxcursor-dev libxfixes-dev libxcomposite-dev libxdamage-dev
+  libxinerama-dev cups-dev fontconfig-dev freetype-dev fribidi-dev shared-mime-info)
+subpackages=(gtk3-dev)
+build(){
+  meson_setup -Dx11_backend=true -Dwayland_backend=true -Dbroadway_backend=false \
+    -Dcolord=no -Dintrospection=false -Dgtk_doc=false -Dman=false \
+    -Ddemos=false -Dexamples=false -Dtests=false -Dinstalled_tests=false \
+    -Dprint_backends=file,lpr,cups build
+  ninja -C build -j$JOBS
+}
+package(){ DESTDIR=$pkgdir ninja -C build install; }
