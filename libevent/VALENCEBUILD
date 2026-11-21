@@ -1,0 +1,12 @@
+pkgname=libevent
+pkgver=2.1.12
+pkgrel=0
+pkgdesc="Event notification library"
+license=BSD-3-Clause
+url=https://libevent.org
+source=(libevent-2.1.12-stable.tar.gz)
+builddir=$srcdir/libevent-2.1.12-stable
+makedepends=(openssl-dev)
+subpackages=(libevent-dev)
+build(){ ./configure $conf_flags --disable-static --disable-samples; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

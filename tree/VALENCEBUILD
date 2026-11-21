@@ -1,0 +1,13 @@
+pkgname=tree
+pkgver=2.3.2
+pkgrel=0
+pkgdesc="Recursive directory listing command that produces a depth-indented tree"
+license=GPL-2.0-or-later
+url=https://gitlab.com/OldManProgrammer/unix-tree
+source=(unix-tree-2.3.2.tar.gz)
+builddir=$srcdir/unix-tree-2.3.2
+makedepends=()
+build(){ make CC="$CC" CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS" -j$JOBS; }
+package(){
+  make PREFIX=$pkgdir/usr MANDIR=$pkgdir/usr/share/man install
+}

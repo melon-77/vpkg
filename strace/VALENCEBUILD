@@ -1,0 +1,10 @@
+pkgname=strace
+pkgver=7.3
+pkgrel=0
+pkgdesc="Diagnostic, debugging and instructional userspace tracer for Linux"
+license=LGPL-2.1-or-later
+url=https://strace.io
+source=(strace-7.3.tar.xz)
+makedepends=(linux-headers)
+build(){ ./configure $conf_flags --enable-mpers=no; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

@@ -1,0 +1,13 @@
+pkgname=wireguard-tools
+pkgver=1.0.20260223
+pkgrel=0
+pkgdesc="Userspace tools for configuring WireGuard VPN tunnels (wg, wg-quick)"
+license=GPL-2.0-only
+url=https://www.wireguard.com
+source=(wireguard-tools-1.0.20260223.tar.xz)
+makedepends=(linux-headers)
+depends=(bash iproute2)
+build(){ make -C src CC="$CC" CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS" -j$JOBS; }
+package(){
+  make -C src DESTDIR=$pkgdir PREFIX=/usr WITH_BASHCOMPLETION=yes WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no install
+}

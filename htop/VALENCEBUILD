@@ -1,0 +1,10 @@
+pkgname=htop
+pkgver=3.5.3
+pkgrel=0
+pkgdesc="Interactive process viewer"
+license=GPL-2.0-only
+url=https://htop.dev
+source=(htop-3.5.3.tar.xz)
+makedepends=(ncurses-dev)
+build(){ ./configure $conf_flags --enable-unicode; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }

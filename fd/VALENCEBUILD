@@ -1,0 +1,18 @@
+pkgname=fd
+pkgver=10.5.2
+pkgrel=0
+pkgdesc="Simple, fast and user-friendly alternative to find"
+license="Apache-2.0 OR MIT"
+url=https://github.com/sharkdp/fd
+source=(fd-10.5.2.tar.gz)
+makedepends=()
+# written in Rust (rule 46)
+options=(rust)
+prepare(){ cargo_fetch; }
+build(){ GIT_CEILING_DIRECTORIES=$srcdir cargo_build; }
+package(){
+  install -Dm755 $(cargo_out)/fd $pkgdir/usr/bin/fd
+  install -Dm644 doc/fd.1 $pkgdir/usr/share/man/man1/fd.1
+  install -Dm644 LICENSE-MIT $pkgdir/usr/share/licenses/fd/LICENSE-MIT
+  install -Dm644 LICENSE-APACHE $pkgdir/usr/share/licenses/fd/LICENSE-APACHE
+}

@@ -1,0 +1,11 @@
+pkgname=jq
+pkgver=1.8.2
+pkgrel=0
+pkgdesc="Command-line JSON processor"
+license=MIT
+url=https://jqlang.org
+source=(jq-1.8.2.tar.gz)
+makedepends=()
+subpackages=(jq-dev)
+build(){ ./configure $conf_flags --disable-static --with-oniguruma=builtin; make -j$JOBS; }
+package(){ make DESTDIR=$pkgdir install; }
