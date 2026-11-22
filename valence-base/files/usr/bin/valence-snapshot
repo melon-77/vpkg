@@ -44,7 +44,7 @@ usage: valence-snapshot [list]            show the snapshots
                                           from before the last package change)
        valence-snapshot delete N...       remove snapshots
 
-apk takes a snapshot before every change to the installed packages and keeps the newest 10. A snapshot holds /
+The package manager takes a snapshot before every change to the installed packages and keeps the newest 10. A snapshot holds /
 (programs, /etc, the kernel) but not /home or /var/log.
 
 The boot menu (press Esc while the computer starts) has "Valence snapshots": an entry starts the system as it was
@@ -188,7 +188,7 @@ cmd_list(){
             echo "The default system is unchanged. valence-snapshot rollback makes this one the default." ;;
     @old)   printf '%4s  %-16s  %s\n' "*" "now" "the system a rollback replaced, until the restart" ;;
   esac
-  [ -n "$(ids)" ] || echo "No snapshots yet: apk takes one before every change to the installed packages."
+  [ -n "$(ids)" ] || echo "No snapshots yet: one is taken before every change to the installed packages."
 }
 
 cmd_create(){

@@ -59,18 +59,19 @@ else
 fi
 
 # developer tools come from Valence's own repository (not Flathub), and most people don't need them: default no
+if [ -f /var/lib/vpm/world ] && command -v vpm >/dev/null 2>&1; then PM=vpm; else PM=apk; fi
 devtools="gcc g++ binutils make pkgconf patch"
-if ! apk info -e gcc >/dev/null 2>&1; then
+if ! $PM info -e gcc >/dev/null 2>&1; then
   echo
   printf '  Install the developer tools (C/C++ compiler, make, pkg-config, patch; about 300 MB)? [y/N] '
   read -r a
   case $a in
     y*|Y*)
       echo; echo "  ${B}Installing from Valence's repository (your password may be asked for)...${R}"; echo
-      if doas apk add $devtools; then
+      if doas $PM add $devtools; then
         echo; echo "  ${G}Done.${R} gcc, g++ and make are ready in the terminal."
       else
-        echo; echo "  That didn't work (no internet?). Later: ${B}doas apk add $devtools${R}"
+        echo; echo "  That didn't work (no internet?). Later: ${B}doas $PM add $devtools${R}"
       fi ;;
   esac
 fi
@@ -79,7 +80,7 @@ nvidia=""
 for d in ${VALENCE_SYSFS:-/sys}/bus/pci/devices/*; do
   [ "$(cat "$d/vendor" 2>/dev/null)" = 0x10de ] && case $(cat "$d/class" 2>/dev/null) in 0x03*) nvidia=1 ;; esac
 done
-if [ -n "$nvidia" ] && ! apk info -e linux-firmware-nvidia >/dev/null 2>&1 && ! apk info -e nvidia-open >/dev/null 2>&1; then
+if [ -n "$nvidia" ] && ! $PM info -e linux-firmware-nvidia >/dev/null 2>&1 && ! $PM info -e nvidia-open >/dev/null 2>&1; then
   cat <<EOF
 
   ${O}${B}This computer has an NVIDIA graphics card.${R} Valence can drive it two ways (GTX 16/RTX 20 and newer):
@@ -96,10 +97,10 @@ EOF
   case $a in 1) nvpkgs="linux-firmware-nvidia mesa-nvk" ;; 2) nvpkgs="nvidia-open" ;; *) nvpkgs="" ;; esac
   if [ -n "$nvpkgs" ]; then
     echo; echo "  ${B}Installing from Valence's repository (your password may be asked for)...${R}"; echo
-    if doas apk add $nvpkgs; then
+    if doas $PM add $nvpkgs; then
       echo; echo "  ${G}Done.${R} Restart Valence to use the new driver."
     else
-      echo; echo "  That didn't work (no internet?). Later: ${B}doas apk add $nvpkgs${R}"
+      echo; echo "  That didn't work (no internet?). Later: ${B}doas $PM add $nvpkgs${R}"
     fi
   fi
 fi

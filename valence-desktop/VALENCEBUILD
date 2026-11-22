@@ -1,6 +1,6 @@
 pkgname=valence-desktop
 pkgver=0.1
-pkgrel=20
+pkgrel=21
 pkgdesc="Valence desktop: Plasma defaults, Valence dark theme, wallpapers, splash, SDDM and GRUB look, desktop services, first-login app offer"
 license=MIT
 # The desktop package list itself lives in scripts/desktop-packages.txt (the ISO profile), so this

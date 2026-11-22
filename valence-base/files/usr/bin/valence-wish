@@ -100,18 +100,20 @@ if [ -n "$CHECK" ]; then say "$(basename "$FILE"): $(printf '%s\n' "$ITEMS" | gr
 if [ -f "${ROOT:-}/var/lib/vpm/world" ] && command -v vpm >/dev/null 2>&1; then
   PM_BIN=vpm
   APK="vpm --plain${ROOT:+ --root $ROOT}"
+  REPO_FLAG=-X
 else
   PM_BIN=apk
   APK="apk${ROOT:+ --root $ROOT}"
+  REPO_FLAG=--repository
 fi
-# the installers' copy of the ISO's packages, by its path from here (apk/vpm read the target's repositories file as
-# paths of this system)
+# the installers' copy of the ISO's packages, by its path from here (apk and vpm -X both keep the target's
+# repositories file alongside the extra local repository)
 _ARCH=$($PM_BIN --print-arch)
 [ -n "$ROOT" ] && [ -f "$ROOT/var/lib/valence/repo/$_ARCH/Packages.adb" ] &&
-  APK="$APK --repository $ROOT/var/lib/valence/repo/$_ARCH/Packages.adb"
+  APK="$APK $REPO_FLAG $ROOT/var/lib/valence/repo/$_ARCH/Packages.adb"
 # the package indexes: fetch the repositories' lists (one that cannot be reached is left out, with a warning)
 $APK update >/dev/null 2>&1 || true
-flathub_id(){   # a name in "packages" that is no apk package: the Flathub app it means
+flathub_id(){   # a name in "packages" that is no repository package: the Flathub app it means
   case $1 in *.*.*) echo "$1"; return 0 ;; esac
   case $(printf '%s' "$1" | tr 'A-Z' 'a-z') in
     firefox) echo org.mozilla.firefox ;; thunderbird) echo org.mozilla.Thunderbird ;; chromium) echo org.chromium.Chromium ;;
@@ -142,7 +144,7 @@ for p in $PKGS; do
   fi
 done
 [ -z "$MISSING" ] || die "no package of this name in Valence's repository, and no Flathub app either:$MISSING
-  (apk search NAME looks in the repository; is the network up for the online repository?)"
+  ($PM_BIN search NAME looks in the repository; is the network up for the online repository?)"
 if [ -n "$FLATADD" ] && [ ! -x "$ROOT/usr/bin/flatpak" ]; then
   die "apps from Flathub need flatpak, which the desktop system has:$FLATADD"
 fi
@@ -178,7 +180,7 @@ for ug in $GRPADD; do echo "  user ${ug%%:*} in group ${ug#*:}"; done
 
 # ---------- doing it ----------
 if [ -z "$ROOT" ]; then
-  # one snapshot for the whole file, so one rollback takes it back (apk's own then has nothing to add)
+  # one snapshot for the whole file, so one rollback takes it back (the package manager's hook is skipped below)
   VALENCE_SNAPSHOT_TEXT="valence-wish $(basename "$FILE")" valence-snapshot auto ||
     die "no snapshot could be taken, so nothing was changed"
 fi
@@ -190,7 +192,7 @@ if [ -n "$HOST" ]; then
   [ -n "$ROOT" ] || echo "$HOST" > /proc/sys/kernel/hostname
 fi
 if [ -n "$APKADD" ]; then
-  $APK --no-commit-hooks add $APKADD || die "apk could not add the packages (above); nothing after them was done"
+  $APK --no-commit-hooks add $APKADD || die "$PM_BIN could not add the packages (above); nothing after them was done"
 fi
 for s in $SVCADD; do
   [ -d "$ROOT/etc/sv/$s" ] || die "no service \"$s\" (the services are the folders in /etc/sv); the packages were added"
