@@ -1,20 +1,20 @@
-pkgname=vpm
+pkgname=octet
 pkgver=0.1.0
-pkgrel=5
-pkgdesc="Valence's own package manager: the signed apk packages, a folder for every program (ROADMAP.md, phase 10)"
+pkgrel=0
+pkgdesc="Octet, Valence's own package manager (the command oct): the signed apk packages, a folder for every program (ROADMAP.md, phase 10)"
 license=GPL-2.0-only
 url=https://github.com/melon-77/v
-# the source is this repository's vpm/ (vpm/README.md), not a tarball
-builddir=$srcdir/vpm
+# the source is this repository's octet/ (octet/README.md), not a tarball
+builddir=$srcdir/octet
 makedepends=(openssl-dev zstd-dev)
 # written in Rust (rule 46)
 options=(rust)
 
-prepare(){ cp -r $M/vpm $srcdir/vpm; rm -rf $srcdir/vpm/target; cd $srcdir/vpm; cargo_fetch; }
+prepare(){ cp -r $M/octet $srcdir/octet; rm -rf $srcdir/octet/target; cd $srcdir/octet; cargo_fetch; }
 # ZSTD_SYS_USE_PKG_CONFIG: Valence's libzstd, never the copy zstd-sys would build for itself (rule 46); OpenSSL
 # (signatures, digests, TLS through native-tls) is Valence's through pkg-config anyway
-build(){ ZSTD_SYS_USE_PKG_CONFIG=1 cargo_build --bin vpm; }
+build(){ ZSTD_SYS_USE_PKG_CONFIG=1 cargo_build --bin oct; }
 package(){
-  install -Dm755 $(cargo_out)/vpm $pkgdir/usr/bin/vpm
-  install -Dm644 README.md $pkgdir/usr/share/doc/vpm/README.md
+  install -Dm755 $(cargo_out)/oct $pkgdir/usr/bin/oct
+  install -Dm644 README.md $pkgdir/usr/share/doc/octet/README.md
 }

@@ -97,16 +97,16 @@ fi
 if [ -n "$CHECK" ]; then say "$(basename "$FILE"): $(printf '%s\n' "$ITEMS" | grep -c .) wishes, readable"; exit 0; fi
 
 # ---------- what is there, and what the file adds ----------
-if [ -f "${ROOT:-}/var/lib/vpm/world" ] && command -v vpm >/dev/null 2>&1; then
-  PM_BIN=vpm
-  APK="vpm --plain${ROOT:+ --root $ROOT}"
+if [ -f "${ROOT:-}/var/lib/octet/world" ] && command -v oct >/dev/null 2>&1; then
+  PM_BIN=oct
+  APK="oct --plain${ROOT:+ --root $ROOT}"
   REPO_FLAG=-X
 else
   PM_BIN=apk
   APK="apk${ROOT:+ --root $ROOT}"
   REPO_FLAG=--repository
 fi
-# the installers' copy of the ISO's packages, by its path from here (apk and vpm -X both keep the target's
+# the installers' copy of the ISO's packages, by its path from here (apk and oct -X both keep the target's
 # repositories file alongside the extra local repository)
 _ARCH=$($PM_BIN --print-arch)
 [ -n "$ROOT" ] && [ -f "$ROOT/var/lib/valence/repo/$_ARCH/Packages.adb" ] &&

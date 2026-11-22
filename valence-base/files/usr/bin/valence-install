@@ -55,8 +55,8 @@ SYSIMG=${VALENCE_SYSIMG:-/media/valence/valence/rootfs.sqfs}
 [ -f "$SYSIMG" ] || die "Valence system image not found at $SYSIMG (are you on the live ISO?)"
 # root from here on (passwordless doas for the live desktop's user)
 [ "$(id -u)" = 0 ] || exec doas /usr/bin/valence-install "$@"
-if [ -f /var/lib/vpm/world ] && command -v vpm >/dev/null 2>&1; then
-  ARCH=$(vpm --print-arch)
+if [ -f /var/lib/octet/world ] && command -v oct >/dev/null 2>&1; then
+  ARCH=$(oct --print-arch)
 else
   ARCH=$(apk --print-arch)
 fi
@@ -203,10 +203,10 @@ for d in dev proc sys; do mount --bind /$d $TARGET/$d; done
 # make the new system's package set match the profile: the system image can hold more than the profile
 # (the desktop ISO's image has the desktop and the live-only installer packages), or less
 grep -v '^#' /usr/share/valence/profiles/$VALENCE_PROFILE | grep . > /tmp/valence-want
-if [ -f "$TARGET/var/lib/vpm/world" ] && command -v vpm >/dev/null 2>&1; then
-  WORLD=$TARGET/var/lib/vpm/world
-  APKT="vpm --plain --root $TARGET --arch $ARCH --repository $REPO/$ARCH/Packages.adb --no-commit-hooks"
-  PM_NAME=vpm
+if [ -f "$TARGET/var/lib/octet/world" ] && command -v oct >/dev/null 2>&1; then
+  WORLD=$TARGET/var/lib/octet/world
+  APKT="oct --plain --root $TARGET --arch $ARCH --repository $REPO/$ARCH/Packages.adb --no-commit-hooks"
+  PM_NAME=oct
 else
   WORLD=$TARGET/etc/apk/world
   APKT="apk --root $TARGET --arch $ARCH --repositories-file /dev/null --repository $REPO/$ARCH/Packages.adb --no-cache"

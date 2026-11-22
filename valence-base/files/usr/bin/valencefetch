@@ -61,8 +61,8 @@ gpu=; for c in /sys/class/drm/card[0-9]; do [ -r $c/device/vendor ] || continue
   drv=$(basename "$(readlink $c/device/driver 2>/dev/null)")
   case $(cat $c/device/vendor) in 0x1002) v=AMD;; 0x8086) v=Intel;; 0x10de) v=NVIDIA;; 0x1af4) v=virtio;; 0x1234) v=QEMU;; *) v=GPU;; esac
   gpu="${gpu:+$gpu, }$v${drv:+ ($drv)}"; done
-if [ -f /var/lib/vpm/world ] && command -v vpm >/dev/null 2>&1; then
-  pkgs=$(vpm info 2>/dev/null | wc -l)
+if [ -f /var/lib/octet/world ] && command -v oct >/dev/null 2>&1; then
+  pkgs=$(oct info 2>/dev/null | wc -l)
 else
   pkgs=$(apk info 2>/dev/null | wc -l)
 fi
