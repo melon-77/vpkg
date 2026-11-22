@@ -1,22 +1,23 @@
 # Firefox ESR 153.7.0esr (apk versions need digits, so 153.7.0 here). Wayland only, like gtk3 (the owner's
-# decision of 2026-11-21), and named "firefox", so "packages = firefox" in a wish list picks this package
-# over Flathub once it is in the repository.
-# First-pass native cross-compile recipe: requires clang-19, lld-19, nodejs, cbindgen, zip on the build host
-# (installed by scripts/host-setup.sh) and host Rust 1.98.1 (scripts/host-rust.sh).
+# decision of 2026-11-21), named "firefox" with official branding (owner's decisions F5 & F7, 2026-11-21).
+# Native cross-compile recipe: requires clang-19, lld-19, nodejs, zip on the build host (scripts/host-setup.sh)
+# and host Rust 1.98.1 + cbindgen 0.29+ (scripts/host-rust.sh).
 pkgname=firefox
 pkgver=153.7.0
-pkgrel=1
-pkgdesc="Mozilla Firefox web browser (ESR)"
+pkgrel=2
+pkgdesc="Mozilla Firefox web browser (ESR, Wayland)"
 license=MPL-2.0
 url=https://www.mozilla.org/firefox/
+arch=(x86_64)
 source=(firefox-153.7.0esr.source.tar.xz)
 builddir=$srcdir/firefox-153.7.0
 makedepends=(gtk3-dev glib-dev cairo-dev pango-dev gdk-pixbuf-dev at-spi2-core-dev
-  dbus-dev wayland-dev wayland-protocols libxkbcommon-dev libdrm-dev mesa-dev
-  alsa-lib-dev pulseaudio-dev pipewire-dev zlib-dev libffi-dev fontconfig-dev freetype-dev
-  pixman-dev eudev-dev)
-# Runtime libraries Firefox dlopen()s (video decoding, Wayland/GL/Vulkan, PulseAudio/PipeWire)
-depends=(ffmpeg mesa pipewire)
+  dbus-dev wayland-dev wayland-protocols libxkbcommon-dev mesa-dev
+  alsa-lib-dev pulseaudio-dev zlib-dev libffi-dev fontconfig-dev freetype-dev eudev-dev)
+# Runtime libraries Firefox dlopen()s (video decoding, Wayland/GL/Vulkan, PulseAudio/PipeWire), plus split data (F4, F6)
+subpackages=(firefox-data)
+pkgdesc_data="Mozilla Firefox web browser (architecture-independent data files)"
+depends=("firefox-data=$pkgver-r$pkgrel" ffmpeg-libs mesa pipewire libpulse)
 options=(rust)
 
 build(){
@@ -26,21 +27,51 @@ build(){
   local lld_flag=--enable-linker=lld
   command -v lld-19 >/dev/null 2>&1 || command -v ld.lld >/dev/null 2>&1 || lld_flag=--enable-linker=bfd
 
-  # Wrapper scripts so mach/configure/bindgen pass Valence's target triple, sysroot, and GCC 15 runtime to host clang
+  # Wrapper scripts (F2): when cargo builds host build-scripts / proc-macros (sharing $RUST_TARGET with target,
+  # outputting under /release/build/ or /release/deps/ outside /$RUST_TARGET/), strip --sysroot/--target/--gcc-toolchain
+  # and exec plain host clang so host tools never link against Valence's glibc 2.44 sysroot (rules 18 & 46).
   mkdir -p "$WORK/ff-cc"
-  cat > "$WORK/ff-cc/cc" <<EOF
+  for kind in cc cxx; do
+    local real_bin=$clang_cc
+    [ "$kind" = cxx ] && real_bin=$clang_cxx
+    cat > "$WORK/ff-cc/$kind" <<EOF
 #!/bin/sh
-exec $clang_cc --target=$TARGET --sysroot=$SYSROOT --gcc-toolchain=$TOOLS "\$@"
+host=0
+prev=
+for a in "\$@"; do
+  if [ "\$prev" = -o ]; then
+    case "\$a" in
+      */$RUST_TARGET/*) ;;
+      */release/build/*|*/release/deps/*|*/debug/build/*|*/debug/deps/*) host=1 ;;
+    esac
+  fi
+  prev=\$a
+done
+if [ "\$host" = 1 ]; then
+  exec python3 -c '
+import os, sys
+args = sys.argv[2:]
+out = []
+i = 0
+while i < len(args):
+    a = args[i]
+    if a in ("--sysroot", "--target", "--gcc-toolchain"):
+        i += 2; continue
+    if a.startswith(("--sysroot=", "--target=", "--gcc-toolchain=")):
+        i += 1; continue
+    out.append(a); i += 1
+os.execvp(sys.argv[1], [sys.argv[1]] + out)
+' "$real_bin" "\$@"
+fi
+exec "$real_bin" --target=$TARGET --sysroot=$SYSROOT --gcc-toolchain=$TOOLS "\$@"
 EOF
-  cat > "$WORK/ff-cc/cxx" <<EOF
-#!/bin/sh
-exec $clang_cxx --target=$TARGET --sysroot=$SYSROOT --gcc-toolchain=$TOOLS "\$@"
-EOF
-  chmod 755 "$WORK/ff-cc/cc" "$WORK/ff-cc/cxx"
+    chmod 755 "$WORK/ff-cc/$kind"
+  done
 
   # Firefox's source tarball ships vendored Rust crates in third_party/rust, so cargo stays offline.
   export MOZBUILD_STATE_PATH="$WORK/mozbuild"
   export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=system
+  export MOZ_APP_REMOTINGNAME=firefox
   export CC="$WORK/ff-cc/cc"
   export CXX="$WORK/ff-cc/cxx"
   export HOST_CC="$clang_cc"
@@ -50,16 +81,20 @@ EOF
   export NM="$TARGET-nm"
   export RUSTC="$M/hosttools/rust/bin/rustc"
   export CARGO="$M/hosttools/rust/bin/cargo"
+  export CBINDGEN="$M/hosttools/rust/bin/cbindgen"
   export BINDGEN_CFLAGS="--target=$TARGET --sysroot=$SYSROOT --gcc-toolchain=$TOOLS"
-  unset CFLAGS CXXFLAGS LDFLAGS
+  # Unset GNU as (F3): Firefox passes compiler flags (-DFOO, -fPIC) to AS
+  unset AS CFLAGS CXXFLAGS LDFLAGS
 
   cat > .mozconfig <<EOF
 ac_add_options --enable-application=browser
 ac_add_options --enable-release
+ac_add_options --enable-official-branding
+ac_add_options --enable-update-channel=release
 ac_add_options --prefix=/usr
 ac_add_options --libdir=/usr/lib
 ac_add_options --host=x86_64-pc-linux-gnu
-ac_add_options --target=$TARGET
+ac_add_options --target=$RUST_TARGET
 ac_add_options --enable-default-toolkit=cairo-gtk3-wayland-only
 ac_add_options --enable-alsa
 ac_add_options --enable-pulseaudio
@@ -82,14 +117,15 @@ EOF
 package(){
   export MOZBUILD_STATE_PATH="$WORK/mozbuild"
   export MACH_BUILD_PYTHON_NATIVE_PACKAGE_SOURCE=system
+  export MOZ_APP_REMOTINGNAME=firefox
   DESTDIR="$pkgdir" ./mach install
 
-  # Desktop entry and icons (default branding dir; adjust if official branding is enabled)
-  local bdir=browser/branding/unofficial
-  [ -d "$bdir" ] || bdir=browser/branding/official
-  for s in 16 32 48 64 128; do
-    [ -f "$bdir/default${s}.png" ] && \
+  local bdir=browser/branding/official
+  [ -d "$bdir" ] || bdir=browser/branding/unofficial
+  for s in 16 22 24 32 48 64 128 256; do
+    if [ -f "$bdir/default${s}.png" ]; then
       install -Dm644 "$bdir/default${s}.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/firefox.png"
+    fi
   done
   install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/firefox.desktop" <<'EOF'
 [Desktop Entry]
@@ -102,5 +138,16 @@ Type=Application
 Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
 StartupNotify=true
+StartupWMClass=firefox
 EOF
+}
+
+pkg_data(){
+  # Split large non-ELF assets out of the main firefox package so neither apk exceeds GitHub's 100 MB file limit (F4)
+  amove usr/lib/firefox/omni.ja usr/lib/firefox/browser/omni.ja
+  for d in usr/lib/firefox/fonts usr/lib/firefox/dictionaries; do
+    if [ -e "$pkgdir/$d" ]; then
+      amove "$d"
+    fi
+  done
 }

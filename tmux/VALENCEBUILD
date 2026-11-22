@@ -1,10 +1,10 @@
 pkgname=tmux
 pkgver=3.8
-pkgrel=0
+pkgrel=1
 pkgdesc="Terminal multiplexer"
 license=ISC
 url=https://github.com/tmux/tmux
 source=(tmux-3.8.tar.gz)
 makedepends=(libevent-dev ncurses-dev)
-build(){ ./configure $conf_flags; make -j$JOBS; }
+build(){ ./configure $conf_flags --with-TERM=tmux-256color; make -j$JOBS; }
 package(){ make DESTDIR=$pkgdir install; }

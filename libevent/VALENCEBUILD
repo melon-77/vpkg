@@ -1,12 +1,14 @@
 pkgname=libevent
-pkgver=2.1.12
+pkgver=2.1.13
 pkgrel=0
 pkgdesc="Event notification library"
 license=BSD-3-Clause
 url=https://libevent.org
-source=(libevent-2.1.12-stable.tar.gz)
-builddir=$srcdir/libevent-2.1.12-stable
+source=(libevent-2.1.13-stable.tar.gz)
+builddir=$srcdir/libevent-2.1.13-stable
 makedepends=(openssl-dev)
 subpackages=(libevent-dev)
+depends_dev=(python3)
 build(){ ./configure $conf_flags --disable-static --disable-samples; make -j$JOBS; }
 package(){ make DESTDIR=$pkgdir install; }
+pkg_dev(){ default_dev; amove usr/bin/event_rpcgen.py; }

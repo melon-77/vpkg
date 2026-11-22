@@ -1,6 +1,6 @@
 pkgname=at-spi2-core
 pkgver=2.62.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Assistive Technology Service Provider Interface (ATK and AT-SPI2 for GTK 3)"
 license=LGPL-2.1-or-later
 url=https://gitlab.gnome.org/GNOME/at-spi2-core
@@ -13,4 +13,8 @@ build(){
     -Ddbus_daemon=/usr/bin/dbus-daemon -Ddefault_bus=dbus-daemon -Dx11=disabled build
   ninja -C build -j$JOBS
 }
-package(){ DESTDIR=$pkgdir ninja -C build install; }
+package(){
+  DESTDIR=$pkgdir ninja -C build install
+  # drop host-Python-compiled GI override (Atspi.py); introspection is disabled anyway (G4)
+  rm -rf $pkgdir/usr/lib/python*
+}

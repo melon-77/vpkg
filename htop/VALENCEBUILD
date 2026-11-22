@@ -1,10 +1,12 @@
 pkgname=htop
 pkgver=3.5.3
-pkgrel=0
+pkgrel=1
 pkgdesc="Interactive process viewer"
-license=GPL-2.0-only
+license=GPL-2.0-or-later
 url=https://htop.dev
 source=(htop-3.5.3.tar.xz)
-makedepends=(ncurses-dev)
-build(){ ./configure $conf_flags --enable-unicode; make -j$JOBS; }
+makedepends=(ncurses-dev lm-sensors-dev libcap-dev libnl3-dev)
+# htop dlopen()s libsensors and libnl-3 at run time (rule 33, C5)
+depends=(libsensors libnl3)
+build(){ ./configure $conf_flags --enable-unicode --enable-sensors --enable-capabilities --enable-delayacct; make -j$JOBS; }
 package(){ make DESTDIR=$pkgdir install; }

@@ -1,12 +1,14 @@
 pkgname=vim
 pkgver=9.2.1381
-pkgrel=0
+pkgrel=1
 pkgdesc="Vi IMproved text editor"
 license=Vim
 url=https://www.vim.org
 source=(vim-9.2.1381.tar.gz)
 makedepends=(ncurses-dev)
 build(){
+  # srcdir=.: the builder exports srcdir, which vim's src/configure turns into --srcdir (C1)
+  srcdir=. \
   vim_cv_toupper_broken=no \
   vim_cv_terminfo=yes \
   vim_cv_tty_group=world \
@@ -16,7 +18,8 @@ build(){
   vim_cv_tgetent=zero \
   ac_cv_small_wchar_t=no \
   ./configure $conf_flags --with-features=huge --with-tlib=ncursesw \
-    --disable-gui --without-x --disable-nls --enable-multibyte
+    --disable-gui --without-x --disable-nls --enable-multibyte \
+    --disable-gpm --disable-canberra --disable-libsodium --disable-selinux --disable-smack --disable-acl
   make -j$JOBS
 }
 package(){ make DESTDIR=$pkgdir STRIP=true install; }

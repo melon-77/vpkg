@@ -1,20 +1,20 @@
 pkgname=gtk3
-pkgver=3.24.43
-pkgrel=1
+pkgver=3.24.52
+pkgrel=0
 pkgdesc="GTK+ 3 graphical user interface toolkit (Wayland only)"
 license=LGPL-2.1-or-later
 url=https://www.gtk.org
-source=(gtk+-3.24.43.tar.xz)
-builddir=$srcdir/gtk+-3.24.43
-makedepends=(glib-dev cairo-dev pango-dev gdk-pixbuf-dev at-spi2-core-dev libepoxy-dev
+source=(gtk-3.24.52.tar.xz)
+builddir=$srcdir/gtk-3.24.52
+makedepends=(glib-dev cairo-dev pango-dev harfbuzz-dev gdk-pixbuf-dev at-spi2-core-dev libepoxy-dev
   wayland-dev wayland-protocols libxkbcommon-dev cups-dev fontconfig-dev freetype-dev fribidi-dev shared-mime-info)
 # Wayland only, the owner's decision of 2026-11-21: Valence's cairo is built without its X11 surfaces (xlib, xcb),
-# which GTK's X11 backend needs
+# which GTK's X11 backend needs. builtin_immodules=backend avoids needing gtk-query-immodules-3.0 at install time (G3).
 subpackages=(gtk3-dev)
 build(){
-  meson_setup -Dx11_backend=false -Dwayland_backend=true -Dbroadway_backend=false \
-    -Dcolord=no -Dintrospection=false -Dgtk_doc=false -Dman=false \
-    -Ddemos=false -Dexamples=false -Dtests=false -Dinstalled_tests=false \
+  meson_setup -Dx11_backend=false -Dwayland_backend=true -Dbroadway_backend=false -Dxinerama=no \
+    -Dcolord=no -Dintrospection=false -Dgtk_doc=false -Dman=false -Dwrap_mode=nofallback \
+    -Dbuiltin_immodules=backend -Ddemos=false -Dexamples=false -Dtests=false -Dinstalled_tests=false \
     -Dprint_backends=file,lpr,cups build
   ninja -C build -j$JOBS
 }
