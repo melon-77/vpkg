@@ -1,6 +1,6 @@
 pkgname=glibc
 pkgver=2.44
-pkgrel=1
+pkgrel=2
 pkgdesc="The GNU C library"
 depends=(valence-layout)
 license=LGPL-2.1-or-later
@@ -31,8 +31,12 @@ build(){
 package(){
   _env make -C build install_root=$pkgdir install
   rm -rf $pkgdir/var/db
-  # name lookups: local files, then DNS for host names. The C.UTF-8 locale is built in; others are made with
+  # C.UTF-8 is the locale /etc/profile sets (LANG=C.UTF-8), and glibc does not build it in: compile it with the
+  # localedef just built, as files in /usr/lib/locale/C.utf8 (no locale-archive). Other locales are made with
   # localedef from glibc-locales.
+  _env make -C localedata objdir=$PWD/build install_root=$pkgdir install-files-C.UTF-8/UTF-8
+  [ -f $pkgdir/usr/lib/locale/C.utf8/LC_CTYPE ] || { echo "glibc: the C.UTF-8 locale was not made" >&2; exit 1; }
+  # name lookups: local files, then DNS for host names
   install -Dm644 $startdir/nsswitch.conf $pkgdir/etc/nsswitch.conf
   install -Dm644 $startdir/ld.so.conf $pkgdir/etc/ld.so.conf
   mkdir -p $pkgdir/etc/ld.so.conf.d

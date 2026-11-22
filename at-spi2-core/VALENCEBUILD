@@ -1,15 +1,16 @@
 pkgname=at-spi2-core
 pkgver=2.62.1
-pkgrel=0
+pkgrel=1
 pkgdesc="Assistive Technology Service Provider Interface (ATK and AT-SPI2 for GTK 3)"
 license=LGPL-2.1-or-later
 url=https://gitlab.gnome.org/GNOME/at-spi2-core
 source=(at-spi2-core-2.62.1.tar.xz)
-makedepends=(glib-dev dbus-dev libxml2-dev libx11-dev libxtst-dev libxi-dev)
+makedepends=(glib-dev dbus-dev libxml2-dev)
+# no X11 part: GTK 3 and Firefox are Wayland only (the owner, 2026-11-21)
 subpackages=(at-spi2-core-dev)
 build(){
   meson_setup -Dintrospection=disabled -Ddocs=false -Duse_systemd=false -Dgtk2_atk_adaptor=false \
-    -Ddbus_daemon=/usr/bin/dbus-daemon -Ddefault_bus=dbus-daemon -Dx11=enabled build
+    -Ddbus_daemon=/usr/bin/dbus-daemon -Ddefault_bus=dbus-daemon -Dx11=disabled build
   ninja -C build -j$JOBS
 }
 package(){ DESTDIR=$pkgdir ninja -C build install; }

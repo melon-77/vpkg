@@ -1,9 +1,11 @@
-# Firefox ESR 153.7.0esr (apk versions need digits, so 153.7.0 here).
+# Firefox ESR 153.7.0esr (apk versions need digits, so 153.7.0 here). Wayland only, like gtk3 (the owner's
+# decision of 2026-11-21), and named "firefox", so "packages = firefox" in a wish list picks this package
+# over Flathub once it is in the repository.
 # First-pass native cross-compile recipe: requires clang-19, lld-19, nodejs, cbindgen, zip on the build host
 # (installed by scripts/host-setup.sh) and host Rust 1.98.1 (scripts/host-rust.sh).
 pkgname=firefox
 pkgver=153.7.0
-pkgrel=0
+pkgrel=1
 pkgdesc="Mozilla Firefox web browser (ESR)"
 license=MPL-2.0
 url=https://www.mozilla.org/firefox/
@@ -11,8 +13,6 @@ source=(firefox-153.7.0esr.source.tar.xz)
 builddir=$srcdir/firefox-153.7.0
 makedepends=(gtk3-dev glib-dev cairo-dev pango-dev gdk-pixbuf-dev at-spi2-core-dev
   dbus-dev wayland-dev wayland-protocols libxkbcommon-dev libdrm-dev mesa-dev
-  libx11-dev libxext-dev libxrender-dev libxcomposite-dev libxdamage-dev libxfixes-dev
-  libxrandr-dev libxcursor-dev libxi-dev libxt-dev libxcb-dev
   alsa-lib-dev pulseaudio-dev pipewire-dev zlib-dev libffi-dev fontconfig-dev freetype-dev
   pixman-dev eudev-dev)
 # Runtime libraries Firefox dlopen()s (video decoding, Wayland/GL/Vulkan, PulseAudio/PipeWire)
@@ -60,7 +60,7 @@ ac_add_options --prefix=/usr
 ac_add_options --libdir=/usr/lib
 ac_add_options --host=x86_64-pc-linux-gnu
 ac_add_options --target=$TARGET
-ac_add_options --enable-default-toolkit=cairo-gtk3-x11-wayland
+ac_add_options --enable-default-toolkit=cairo-gtk3-wayland-only
 ac_add_options --enable-alsa
 ac_add_options --enable-pulseaudio
 ac_add_options --with-system-zlib
