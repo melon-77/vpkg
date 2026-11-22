@@ -1,0 +1,13 @@
+pkgname=sdl2-ttf
+pkgver=2.24.0
+pkgrel=0
+pkgdesc="SDL2_ttf: draws TrueType/OpenType text with FreeType, shaped by HarfBuzz"
+license=Zlib
+url=https://github.com/libsdl-org/SDL_ttf
+source=(SDL2_ttf-2.24.0.tar.gz)
+builddir=$srcdir/SDL2_ttf-2.24.0
+makedepends=(sdl2-compat-dev freetype-dev harfbuzz-dev)
+subpackages=(sdl2-ttf-dev)
+build(){ cmake_setup -B build -DSDL2TTF_VENDORED=OFF -DSDL2TTF_HARFBUZZ=ON -DSDL2TTF_SAMPLES=OFF
+  ninja -C build -j$JOBS; }
+package(){ DESTDIR=$pkgdir ninja -C build install; }

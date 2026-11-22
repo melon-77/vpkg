@@ -1,0 +1,48 @@
+# Upstream names its releases with letters: 0.I "Ito", first stable build 0.I-1. apk versions need digits, so
+# 0.I-1 is 0.9.1 here (0.H would be 0.8.x).
+pkgname=cataclysm-dda
+pkgver=0.9.1
+pkgrel=4
+pkgdesc="Cataclysm: Dark Days Ahead, a turn-based survival roguelike (terminal version)"
+license="CC-BY-SA-3.0 AND OFL-1.1"
+url=https://cataclysmdda.org
+source=(cataclysm-dda-0.9.1.tar.gz)
+builddir=$srcdir/Cataclysm-DDA-0.I-1
+makedepends=(ncurses-dev zlib-dev sdl2-compat-dev sdl2-image-dev sdl2-ttf-dev sdl2-mixer-dev)
+subpackages=(cataclysm-dda-tiles)
+pkgdesc_cataclysm_dda_tiles="Cataclysm: Dark Days Ahead, a turn-based survival roguelike (graphical tiles and sound)"
+depends_cataclysm_dda_tiles=("cataclysm-dda=$pkgver-r$pkgrel")
+
+# Builds both the terminal (curses) binary and the graphical tiles+sound binary (split into cataclysm-dda-tiles
+# so console installs do not pull in SDL/Mesa). Upstream uses obj/ for curses and obj/tiles/ for tiles.
+# No CROSS=: upstream uses it only for Windows and macOS targets and leaves out the Linux install target then. A
+# plain build picks up valence-build's cross CXX, and ncursesw/SDL2 through its sysroot pkg-config.
+#   LOCALIZE=0     English only, like the base tools (ROADMAP.md, "Not decided yet")
+#   USE_XDG_DIR=1  saves and settings in ~/.local/share and ~/.config instead of the current directory
+#   TESTS, ASTYLE, LINTJSON=0   upstream's test suite and style checks; the style checks build a host tool
+#   WARNINGS=      upstream builds with -Werror, which a newer compiler than theirs can break for no real reason
+#   AR=, STRIP=    the Makefile sets them to the build machine's ar and strip
+_ddamake(){
+  make RELEASE=1 LOCALIZE=0 USE_XDG_DIR=1 TESTS=0 ASTYLE=0 LINTJSON=0 \
+    WARNINGS="-Wall -Wextra" AR="$AR" STRIP="$STRIP" PREFIX=/usr "$@"
+}
+build(){
+  _ddamake TILES=0 SOUND=0 -j$JOBS
+  _ddamake TILES=1 SOUND=1 -j$JOBS
+}
+package(){
+  _ddamake TILES=0 SOUND=0 DESTDIR=$pkgdir install
+  _ddamake TILES=1 SOUND=1 DESTDIR=$pkgdir install
+  # zzip, upstream's save compression tool, is installed as /usr/bin/zzip, a name too generic for the system
+  mv $pkgdir/usr/bin/zzip $pkgdir/usr/bin/cataclysm-zzip
+  chmod 644 $pkgdir/usr/share/applications/org.cataclysmdda.CataclysmDDA.desktop
+  install -Dm644 doc/cataclysm.6 $pkgdir/usr/share/man/man6/cataclysm.6
+}
+pkg_tiles(){
+  amove usr/bin/cataclysm-tiles \
+    usr/share/cataclysm-dda/gfx \
+    usr/share/cataclysm-dda/sound \
+    usr/share/applications \
+    usr/share/metainfo \
+    usr/share/icons
+}
