@@ -5,7 +5,7 @@ set -eu
 ROOT=$1
 PATH=/usr/bin
 REPO=/media/valence/valence/repo
-if [ -f /var/lib/octet/world ] && command -v oct >/dev/null 2>&1; then
+if [ -f /var/lib/catalyst/world ] && command -v oct >/dev/null 2>&1; then
   ARCH=$(oct --print-arch)
 else
   ARCH=$(apk --print-arch)
@@ -75,7 +75,7 @@ if [ "$swapm" -ge 256 ]; then
   fi
 fi
 
-if [ -f "$ROOT/var/lib/octet/world" ] && command -v oct >/dev/null 2>&1; then
+if [ -f "$ROOT/var/lib/catalyst/world" ] && command -v oct >/dev/null 2>&1; then
   PM_DEL="oct --plain --root $ROOT --arch $ARCH --no-commit-hooks"
   PM_ADD="oct --plain --root $ROOT --arch $ARCH --repository $REPO/$ARCH/Packages.adb --no-commit-hooks"
 else

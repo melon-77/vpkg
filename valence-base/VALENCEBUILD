@@ -1,6 +1,6 @@
 pkgname=valence-base
 pkgver=0.1
-pkgrel=50
+pkgrel=51
 pkgdesc="Valence base system: init scripts, services, configuration and tools"
 license=MIT
 # The GNU tools provide the commands (ROADMAP.md, "Decided"); BusyBox stays for /bin/sh, the initramfs, the small

@@ -1,20 +1,20 @@
-pkgname=octet
+pkgname=catalyst
 pkgver=0.1.0
 pkgrel=0
-pkgdesc="Octet, Valence's own package manager (the command oct): the signed apk packages, a folder for every program (ROADMAP.md, phase 10)"
+pkgdesc="Catalyst, Valence's own package manager (the command oct): the signed apk packages, a folder for every program (ROADMAP.md, phase 10)"
 license=GPL-2.0-only
 url=https://github.com/melon-77/v
-# the source is this repository's octet/ (octet/README.md), not a tarball
-builddir=$srcdir/octet
+# the source is this repository's catalyst/ (catalyst/README.md), not a tarball
+builddir=$srcdir/catalyst
 makedepends=(openssl-dev zstd-dev)
 # written in Rust (rule 46)
 options=(rust)
 
-prepare(){ cp -r $M/octet $srcdir/octet; rm -rf $srcdir/octet/target; cd $srcdir/octet; cargo_fetch; }
+prepare(){ cp -r $M/catalyst $srcdir/catalyst; rm -rf $srcdir/catalyst/target; cd $srcdir/catalyst; cargo_fetch; }
 # ZSTD_SYS_USE_PKG_CONFIG: Valence's libzstd, never the copy zstd-sys would build for itself (rule 46); OpenSSL
 # (signatures, digests, TLS through native-tls) is Valence's through pkg-config anyway
 build(){ ZSTD_SYS_USE_PKG_CONFIG=1 cargo_build --bin oct; }
 package(){
   install -Dm755 $(cargo_out)/oct $pkgdir/usr/bin/oct
-  install -Dm644 README.md $pkgdir/usr/share/doc/octet/README.md
+  install -Dm644 README.md $pkgdir/usr/share/doc/catalyst/README.md
 }

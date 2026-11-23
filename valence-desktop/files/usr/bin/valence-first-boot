@@ -59,7 +59,7 @@ else
 fi
 
 # developer tools come from Valence's own repository (not Flathub), and most people don't need them: default no
-if [ -f /var/lib/octet/world ] && command -v oct >/dev/null 2>&1; then PM=oct; else PM=apk; fi
+if [ -f /var/lib/catalyst/world ] && command -v oct >/dev/null 2>&1; then PM=oct; else PM=apk; fi
 devtools="gcc g++ binutils make pkgconf patch"
 if ! $PM info -e gcc >/dev/null 2>&1; then
   echo

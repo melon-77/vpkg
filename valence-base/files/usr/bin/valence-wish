@@ -97,7 +97,7 @@ fi
 if [ -n "$CHECK" ]; then say "$(basename "$FILE"): $(printf '%s\n' "$ITEMS" | grep -c .) wishes, readable"; exit 0; fi
 
 # ---------- what is there, and what the file adds ----------
-if [ -f "${ROOT:-}/var/lib/octet/world" ] && command -v oct >/dev/null 2>&1; then
+if [ -f "${ROOT:-}/var/lib/catalyst/world" ] && command -v oct >/dev/null 2>&1; then
   PM_BIN=oct
   APK="oct --plain${ROOT:+ --root $ROOT}"
   REPO_FLAG=-X
