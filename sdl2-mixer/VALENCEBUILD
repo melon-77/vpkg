@@ -1,17 +1,19 @@
 pkgname=sdl2-mixer
 pkgver=2.8.2
-pkgrel=0
+pkgrel=1
 pkgdesc="SDL2_mixer: multi-channel audio mixer supporting WAV, Ogg Vorbis, FLAC and MP3"
 license=Zlib
 url=https://github.com/libsdl-org/SDL_mixer
 source=(SDL2_mixer-2.8.2.tar.gz)
 builddir=$srcdir/SDL2_mixer-2.8.2
-makedepends=(sdl2-compat-dev libogg-dev libvorbis-dev flac-dev mpg123-dev)
+makedepends=(sdl2-compat-dev libogg-dev libvorbis-dev mpg123-dev)
+# FLAC through SDL_mixer's own dr_flac: libFLAC's flac-config.cmake asks for Ogg's CMake config, which libogg-dev
+# does not ship, so any CMake build that finds FLAC stops there
 subpackages=(sdl2-mixer-dev)
 # Linked, not dlopen()ed, so the codec libraries become so: dependencies.
 # Disabled codecs whose libraries are not in Valence yet: opusfile, libxmp/modplug, fluidsynth/timidity, wavpack, libgme.
 build(){ cmake_setup -B build -DSDL2MIXER_VENDORED=OFF -DSDL2MIXER_DEPS_SHARED=OFF -DSDL2MIXER_SAMPLES=OFF -DSDL2MIXER_CMD=OFF \
-  -DSDL2MIXER_VORBIS=VORBISFILE -DSDL2MIXER_FLAC=ON -DSDL2MIXER_FLAC_LIBFLAC=ON -DSDL2MIXER_FLAC_DRFLAC=OFF \
+  -DSDL2MIXER_VORBIS=VORBISFILE -DSDL2MIXER_FLAC=ON -DSDL2MIXER_FLAC_LIBFLAC=OFF -DSDL2MIXER_FLAC_DRFLAC=ON \
   -DSDL2MIXER_MP3=ON -DSDL2MIXER_MP3_MPG123=ON -DSDL2MIXER_MP3_MINIMP3=OFF \
   -DSDL2MIXER_OPUS=OFF -DSDL2MIXER_MOD=OFF -DSDL2MIXER_MIDI=OFF -DSDL2MIXER_WAVPACK=OFF -DSDL2MIXER_GME=OFF
   ninja -C build -j$JOBS; }
